@@ -46,7 +46,7 @@ const TYPING_PHRASES = [
   'در حال پردازش خفن…',
 ]
 
-const SPRING = { type: 'spring' as const, stiffness: 340, damping: 28 }
+const SPRING = { type: 'spring' as const, stiffness: 420, damping: 26 }
 
 /**
  * شافل با seed ثابت (بر اساس روز)
@@ -169,12 +169,29 @@ function ImageMessage({
           ✨
         </motion.span>
       ))}
-      <img
-        src={dataUrl}
-        alt="تصویر ساخته‌شده توسط تکا"
-        className="teka-img-reveal block w-full"
-        loading="lazy"
-      />
+      {/* ✨ جرقه‌ای که موقع ریویل محو می‌شه */}
+      <motion.span
+        aria-hidden="true"
+        className="pointer-events-none absolute left-3 top-3 z-20 text-xl"
+        initial={{ opacity: 1 }}
+        animate={{ opacity: 0 }}
+        transition={{ duration: 1.4, delay: 0.5, ease: 'easeOut' }}
+      >
+        ✨
+      </motion.span>
+      {/* ریویل سینمایی: از بلور/مقیاس کوچیک به شارپ */}
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9, filter: 'blur(20px)' }}
+        animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+        transition={{ duration: 0.9, ease: 'easeOut' }}
+      >
+        <img
+          src={dataUrl}
+          alt="تصویر ساخته‌شده توسط تکا"
+          className="block w-full"
+          loading="lazy"
+        />
+      </motion.div>
       <div className="flex items-center justify-between bg-background/70 px-3 py-2 backdrop-blur">
         <span className="text-[11px] font-medium text-muted-foreground">
           🎨 تصویرساز تکا
@@ -282,6 +299,7 @@ type BubbleProps = {
   onRedraw?: () => void
   speakingId: string | null
   speakingLoadingId: string | null
+  isStreaming?: boolean
 }
 
 /* ---------- تجزیهٔ پیام کاربر (عکس/فایل پیوست) ---------- */
@@ -343,6 +361,7 @@ export function MessageBubble({
   onRedraw,
   speakingId,
   speakingLoadingId,
+  isStreaming,
 }: BubbleProps) {
   const [copied, setCopied] = useState(false)
 
@@ -350,7 +369,7 @@ export function MessageBubble({
     const parsed = parseUserContent(message.content)
     return (
       <motion.div
-        initial={{ opacity: 0, y: 14, scale: 0.97 }}
+        initial={{ opacity: 0, x: 26, scale: 0.96 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={SPRING}
         className="flex justify-end"
@@ -404,15 +423,21 @@ export function MessageBubble({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={{ opacity: 0, y: 18, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={SPRING}
-      className="group flex items-start gap-2"
+      className="teka-msg-in group flex items-start gap-2"
     >
       <TekaAvatar />
       <div className="min-w-0 max-w-[85%] md:max-w-[75%]">
         <div className="teka-md teka-border-anim rounded-2xl rounded-tr-md px-4 py-3 text-[15px]">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+          {/* نشانگر چشمک‌زن هنگام استریم جواب */}
+          {message.role === 'assistant' &&
+            isStreaming &&
+            !message.content.startsWith(IMAGE_MARKER) && (
+              <span className="teka-cursor" aria-hidden="true" />
+            )}
         </div>
 
         {/* اکشن‌ها */}

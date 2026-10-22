@@ -734,3 +734,63 @@
     animation: none !important;
   }
 }
+
+/* ── Streaming cursor + message-in glow + splash shimmer (5-a) ── */
+.teka-cursor {
+  display: inline-block;
+  width: 0.5ch;
+  min-width: 3px;
+  height: 1.05em;
+  margin-inline-start: 3px;
+  vertical-align: -0.15em;
+  background: var(--primary);
+  border-radius: 2px;
+  animation: teka-blink 0.85s steps(2, start) infinite;
+}
+@keyframes teka-blink {
+  50% {
+    opacity: 0;
+  }
+}
+.teka-msg-in {
+  animation: teka-fade-glow 0.9s ease both;
+}
+@keyframes teka-fade-glow {
+  0% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  45% {
+    box-shadow: 0 0 26px color-mix(in oklab, var(--primary) 22%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+.teka-splash-shimmer {
+  background-image: linear-gradient(100deg, #d99a2b 20%, #fff3d6 40%, #f5c451 55%, #d99a2b 75%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: teka-shimmer-move 2.6s linear infinite;
+}
+@keyframes teka-shimmer-move {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .teka-cursor {
+    animation: none;
+    opacity: 1;
+  }
+  .teka-splash-shimmer {
+    animation: none;
+  }
+  .teka-msg-in {
+    animation: none;
+  }
+}

@@ -231,10 +231,11 @@ export function sanitizeReply(text: string): string {
 }
 
 /** تمیز کردن متن برای TTS: مارک‌دون و ایموجی حذف می‌شه */
-export function cleanTextForTts(text: string): string {
+export function cleanTextForTts(text: string, maxLen = 900): string {
   return text
     .replace(/```[\s\S]*?```/g, ' ') // بلاک کد
     .replace(/`([^`]*)`/g, '$1') // اینلاین کد
+    .replace(/https?:\/\/\S+/g, ' ') // لینک خام (تلفظش آدم‌کشته!)
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ') // تصویر
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1') // لینک
     .replace(/^#{1,6}\s+/gm, '') // هدینگ
@@ -245,7 +246,7 @@ export function cleanTextForTts(text: string): string {
     ) // ایموجی
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 900)
+    .slice(0, maxLen)
 }
 
 /**

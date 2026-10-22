@@ -128,3 +128,25 @@ Stage Summary:
 - تست curl: رجیستر/لاگین/می/۴۰۹ تکراری/۴۰۱ رمز غلط/گوگل ریدایرکت — همگی پاس
 - تست مرورگر (Agent Browser): ثبت‌نام واقعی از UI موفق، چیپ کاربر ظاهر شد، مدال «اولین حرف» + لول‌آپ سطح ۱۹ با کانفتی و اوورلی خودکار، پیام با بوردر متحرک، عکس گربه فضایی «زنده» تو چت ظاهر شد (بدون خروج/برگشت — باگ قبلی تأیید حل)، شهاب و کانیک مرئی، موبایل 390px سالم
 - lint: ۰ خطا / dev.log: بدون خطا / شات‌ها: shots/v3-*.png
+
+---
+Task ID: 5-a
+Agent: frontend-styling-expert
+Task: Splash entrance + streaming cursor + bubble/image animation upgrades
+
+Work Log:
+- ساخت src/components/chat/splash.tsx (امضای دقیق export function Splash({ onDone }: { onDone: () => void })): اورلی fixed inset-0 z-[100] با bg-background + مینی‌آرورای اختصاصی (۴ هالهٔ radial طلایی/کهربایی/نارنجی با blur-3xl و چرخهٔ شناور ۹–۱۴ ثانیه‌ای)، درخشش conic چرخان آهسته (۳۰s) و ۸ ستارهٔ چشمک‌زن با کلاس موجود teka-star (موقعیت‌ها هاردکد → بدون hydration mismatch).
+- مرکز اسپلش با استاجر: گوی w-36 h-36 گرد با next/image از /teka-logo-gold.png + ring-4 ring-primary/40 + shadow-2xl shadow-primary/40 + هالهٔ طلایی بلورشده پشتش + ۳ حلقهٔ منبسط‌شوندهٔ نبض‌دار (motion scale 1→1.7 + fade، هر ۲.۴s با تأخیر پلکانی)؛ واژه‌نگار «تکا» text-6xl font-black با کلاس جدید teka-splash-shimmer (گرادیانت طلایی متحرک #d99a2b/#fff3d6/#f5c451)؛ شعار «هوش مصنوعی فارسی ساختهٔ محمد صادقی»؛ نوار پیشرفت w-56 h-1.5 با inner گرادیانت طلایی (کلاس موجود teka-xp-bar) پر شدن ۰→۱۰۰٪ طی ۲.۱s easeInOut؛ خط وضعیت با چرخش هر ۶۵۰ms بین ۴ جملهٔ خفن و سواپ AnimatePresence (opacity+y).
+- تایمینگ اسپلش: onDone دقیقاً یک‌بار بعد از ۲۴۰۰ms با گارد useRef + فراخوانی فوری روی pointerdown/keydown (skip)؛ همهٔ تایمر/لیسنرها در cleanup پاک می‌شن؛ ref الگوی latest برای جلوگیری از ری‌استارت تایمر با تغییر هویت onDone.
+- روت اسپلش motion.div با initial={{ opacity: 0 }} / animate={{ opacity: 1 }} / exit={{ opacity: 0, scale: 1.12, filter: 'blur(14px)' }} transition 0.55 easeInOut — والد فقط کافیه توی AnimatePresence بذارش.
+- prefers-reduced-motion با useReducedMotion: هاله‌ها/conic/حلقه‌ها ثابت (بدون لوپ)، فقط fade — ستاره‌ها هم از بلاک reduced-motion موجود globals بی‌حرکت می‌شن.
+- message-list.tsx: BubbleProps فقط با prop اختیاری isStreaming?: boolean گسترش پیدا کرد (هیچ export/prop حذف یا تغییر نام نشد)؛ در MessageBubble وقتی assistant && isStreaming && محتوا با TEKA_IMG:: شروع نمی‌شه، بلافاصله بعد از ReactMarkdown داخل همون حباب <span className="teka-cursor" aria-hidden /> رندر می‌شه (محتوای خالی = فقط کرسر).
+- اسپرینگ حباب‌ها کمی فنری‌تر شد: SPRING از stiffness 340/damping 28 به 420/26 (مشترک بین تایپینگ/حباب‌ها/کارت نقاشی). حباب کاربر: initial { opacity: 0, x: 26, scale: 0.96 } (اسلاید از راست در RTL)؛ حباب تکا: initial { opacity: 0, y: 18, scale: 0.97 } + کلاس teka-msg-in (پالس box-shadow طلایی ۰.۹s).
+- ریویل عکس: <img> داخل motion.div جدید با initial { opacity: 0, scale: 0.9, filter: blur(20px) } → animate { opacity: 1, scale: 1, blur(0) } طی 0.9s easeOut + ✨ اورلی جدید گوشهٔ بالا-چپ فریم (opacity 1→0، ۱.۴s، تأخیر ۰.۵s، pointer-events-none). کلاس teka-img-reveal از این img برداشته شد تا دو انیمیشن blur روی هم نیفته (کلاس CSS و بلاک‌هاش سر جاش موند).
+- globals.css فقط APPEND شد (بلاک 5-a در انتهای فایل): .teka-cursor + teka-blink، .teka-msg-in + teka-fade-glow (با color-mix روی var(--primary))، .teka-splash-shimmer + teka-shimmer-move (background-image لانگ‌هند با رنگ‌های hex — الگوی امن Lightning CSS)، و بلاک reduced-motion مخصوص همین سه کلاس. var(--primary) با تم موجود هم‌نام بود.
+- عدم اجرای dev/lint/build طبق قانون؛ صحت تایپ‌ها با tsc --noEmit فقط-خواندنی چک شد. page.tsx دست‌نخورده ماند.
+
+Stage Summary:
+- خروجی‌ها: src/components/chat/splash.tsx (جدید)، src/components/chat/message-list.tsx (isStreaming + کرسر استریم + انیمیشن ورود فنری + ریویل سینمایی عکس)، src/app/globals.css (بلاک 5-a الحاق شد)، worklog.md.
+- آمادهٔ اتصال: در page.tsx کافیه <Splash onDone={...} /> داخل AnimatePresence رندر بشه و isStreaming رو به MessageBubble پاس بدید (prop اختیاریه، بدون اتصال هم چیزی نمی‌شکنه).
+- پالت کاملاً گرم (طلایی/کهربایی/نارنجی) بدون هیچ آبی/بنفش؛ همهٔ متن‌ها فارسی خودمونی.

@@ -68,7 +68,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 }
 
 // حذف گفتگو
-export async function DELETE(_req: NextRequest, { params }: RouteParams) {
+export async function DELETE(req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params
     const access = await canAccess(req, id)

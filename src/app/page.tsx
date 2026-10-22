@@ -36,6 +36,7 @@ import {
   TypingIndicator,
 } from '@/components/chat/message-list'
 import { AuthDialog, type TekaUser } from '@/components/chat/auth-dialog'
+import { Splash } from '@/components/chat/splash'
 import {
   AchievementsChip,
   LevelUpOverlay,
@@ -102,6 +103,8 @@ export default function TekaPage() {
   const [speakingLoadingId, setSpeakingLoadingId] = useState<string | null>(null)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const [awaitingArt, setAwaitingArt] = useState(false) // منتظر عکسِ در حال ساخت تو چت عادی
+  const [streamingId, setStreamingId] = useState<string | null>(null) // ⚡ حباب استریم زنده
+  const [showSplash, setShowSplash] = useState(true) // 🎬 انیمیشن ورود
 
   // 🔐 حساب کاربری
   const [user, setUser] = useState<TekaUser | null>(null)
@@ -136,6 +139,13 @@ export default function TekaPage() {
       const savedPower = localStorage.getItem('teka-power')
       setPower(savedPower === null ? true : savedPower === '1') // پیش‌فرض: قدرتمند
       setAutoSpeak(localStorage.getItem('teka-autospeak') === '1')
+    } catch {
+      /* noop */
+    }
+
+    // 🎬 اگه اسپلش تو این نشست دیده شده، دیگه نشونش نده
+    try {
+      if (sessionStorage.getItem('teka-splash-seen') === '1') setShowSplash(false)
     } catch {
       /* noop */
     }
@@ -200,6 +210,16 @@ export default function TekaPage() {
       /* noop */
     }
   }, [autoSpeak])
+
+  // 🎬 پایان انیمیشن ورود
+  const finishSplash = useCallback(() => {
+    setShowSplash(false)
+    try {
+      sessionStorage.setItem('teka-splash-seen', '1')
+    } catch {
+      /* noop */
+    }
+  }, [])
 
   // 🖱️ هالهٔ دنبال‌کنندهٔ موس
   useEffect(() => {
@@ -417,6 +437,7 @@ export default function TekaPage() {
     }
     setUser(null)
     stopSpeaking()
+    setStreamingId(null)
     setActiveId(null)
     setMessages([])
     loadConversations()
@@ -427,6 +448,7 @@ export default function TekaPage() {
   const openConversation = useCallback(
     async (id: string) => {
       stopSpeaking()
+      setStreamingId(null)
       if (id === activeIdRef.current) {
         setSidebarOpen(false)
         return
@@ -463,6 +485,7 @@ export default function TekaPage() {
   // ---------- چت جدید ----------
   const newChat = useCallback(() => {
     stopSpeaking()
+    setStreamingId(null)
     setSidebarOpen(false)
     setActiveId(null)
     setMessages([])
@@ -539,7 +562,7 @@ export default function TekaPage() {
     []
   )
 
-  // ---------- ارسال پیام ----------
+  // ---------- ارسال پیام (⚡ استریم زنده — حرف‌به‌حرف) ----------
   const send = useCallback(
     async (text: string) => {
       if (sending || regenerating || imageBusy || visionBusy) return
@@ -549,9 +572,65 @@ export default function TekaPage() {
       stopSpeaking()
       const usedConvId = activeIdRef.current
       const tempId = `local-${Date.now()}`
+      const streamMsgId = `streaming-${Date.now()}`
 
       setMessages((m) => [...m, { id: tempId, role: 'user', content }])
       setSending(true)
+
+      let convId: string | null = null
+      let title: string | null = null
+      let raw = ''
+      let streamVisible = false
+
+      const stillHere = () =>
+        activeIdRef.current === usedConvId ||
+        (convId !== null && activeIdRef.current === convId)
+
+      /** نمایش دلتاها با مخفی‌کردن مارکرهای سروری (TEKA_DRAW:: و رفقا) */
+      const showDelta = () => {
+        const visible = raw
+          .replace(/TEKA_[A-Z]+::[^\n]*/g, ' ')
+          .replace(/TEKA_[A-Z]*:??:?$/, '')
+        if (!visible.trim()) return
+        if (!streamVisible) {
+          streamVisible = true
+          setStreamingId(streamMsgId)
+        }
+        if (stillHere()) {
+          setMessages((m) =>
+            m.map((x) => (x.id === streamMsgId ? { ...x, content: visible } : x))
+          )
+        }
+      }
+
+      /** منتظر عکسِ در حال ساخت بمون (نقاشی پس‌زمینه + polling) */
+      const waitForArt = async () => {
+        const cid = convId
+        if (!cid) return
+        setActiveId(cid)
+        setAwaitingArt(true)
+        try {
+          const fresh = await waitForNewMessages(cid)
+          if (fresh.length > 0) {
+            if (activeIdRef.current === cid) {
+              setMessages((m) => [...m, ...fresh])
+              if (autoSpeakRef.current && !fresh[0]?.content?.startsWith('TEKA_IMG::')) {
+                speakRef.current?.(fresh[0])
+              }
+            }
+            bumpConversation(cid, title ?? 'چت جدید')
+          } else {
+            toast({
+              title: 'داره آماده می‌شه! ⏳',
+              description:
+                'نقاشی تو پس‌زمینه کار می‌کنه؛ چند لحظه دیگه بیا تو همین چت، اینجاست! 🎨',
+            })
+            bumpConversation(cid, title ?? 'چت جدید')
+          }
+        } finally {
+          setAwaitingArt(false)
+        }
+      }
 
       try {
         const res = await fetch('/api/chat', {
@@ -562,57 +641,117 @@ export default function TekaPage() {
             conversationId: usedConvId,
             power,
             mood: moodRef.current,
+            stream: true,
           }),
           signal: AbortSignal.timeout(150_000),
         })
-        const data = await res.json().catch(() => null)
 
         if (!res.ok) {
+          const data = await res.json().catch(() => null)
           throw new Error(data?.error || 'یه چیزی قاطی شد، دوباره بفرست!')
         }
 
-        trackEvent('chat')
-        const convId: string = data.conversationId
+        const ctype = res.headers.get('content-type') ?? ''
 
-        // ⭐ نقاشی در پس‌زمینه داره آماده می‌شه — منتظر بمون تا عکس بیاد
-        if (data.processing === true) {
-          setActiveId(convId)
-          setAwaitingArt(true)
-          try {
-            const fresh = await waitForNewMessages(convId)
-            if (fresh.length > 0) {
-              if (activeIdRef.current === convId) {
-                setMessages((m) => [...m, ...fresh])
-                if (autoSpeakRef.current && !fresh[0]?.content?.startsWith('TEKA_IMG::')) {
-                  speakRef.current?.(fresh[0])
-                }
-              }
-              bumpConversation(convId, data.title)
-            } else {
-              toast({
-                title: 'داره آماده می‌شه! ⏳',
-                description:
-                  'نقاشی تو پس‌زمینه کار می‌کنه؛ چند لحظه دیگه بیا تو همین چت، اینجاست! 🎨',
-              })
-              bumpConversation(convId, data.title)
-            }
-          } finally {
-            setAwaitingArt(false)
+        // ——— مسیر JSON: درخواست عکس مستقیم (processing) ———
+        if (!ctype.includes('text/event-stream')) {
+          const data = await res.json().catch(() => null)
+          trackEvent('chat')
+          convId = data?.conversationId ?? null
+          title = data?.title ?? null
+          if (data?.processing === true) {
+            await waitForArt()
+          } else if (data?.reply && stillHere()) {
+            setMessages((m) => [...m, data.reply])
+            if (convId) setActiveId(convId)
+            if (convId) bumpConversation(convId, title ?? '')
           }
           return
         }
 
-        if (activeIdRef.current === usedConvId) {
-          setMessages((m) => [...m, data.reply])
-          // خواندن خودکار جواب اگه روشنه
-          if (autoSpeakRef.current && !data.reply?.content?.startsWith('TEKA_IMG::')) {
-            speakRef.current?.(data.reply)
+        // ——— ⚡ مسیر استریم: جواب همون لحظه حرف‌به‌حرف میاد ———
+        if (!res.body) throw new Error('استریم از سرور نیومد!')
+        setMessages((m) => [
+          ...m,
+          { id: streamMsgId, role: 'assistant', content: '' },
+        ])
+        const reader = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buf = ''
+        let finalReply: ChatMessage | null = null
+        let artStarted = false
+        let gotError: string | null = null
+
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buf += decoder.decode(value, { stream: true })
+          const parts = buf.split('\n\n')
+          buf = parts.pop() ?? ''
+          for (const part of parts) {
+            let evt = 'message'
+            let dataStr = ''
+            for (const line of part.split('\n')) {
+              if (line.startsWith('event:')) evt = line.slice(6).trim()
+              else if (line.startsWith('data:')) dataStr += line.slice(5).trim()
+            }
+            if (!dataStr) continue
+            try {
+              const d = JSON.parse(dataStr) as Record<string, unknown>
+              if (evt === 'meta') {
+                convId = d.conversationId as string
+                title = (d.title as string) ?? title
+                if (activeIdRef.current === usedConvId) setActiveId(convId)
+              } else if (evt === 'delta') {
+                raw += d.text as string
+                showDelta()
+              } else if (evt === 'done') {
+                finalReply = d.reply as ChatMessage
+                convId = (d.conversationId as string) ?? convId
+                title = (d.title as string) ?? title
+              } else if (evt === 'art') {
+                artStarted = true
+                convId = (d.conversationId as string) ?? convId
+                title = (d.title as string) ?? title
+              } else if (evt === 'error') {
+                gotError = d.error as string
+              }
+            } catch {
+              /* تکهٔ ناقص SSE — رد شو */
+            }
           }
         }
-        setActiveId(convId)
-        bumpConversation(convId, data.title)
+
+        if (gotError) throw new Error(gotError)
+
+        // نقاشی قراره ساخته بشه → حباب استریم رو بردار و polling کن
+        if (artStarted && convId) {
+          if (stillHere()) setMessages((m) => m.filter((x) => x.id !== streamMsgId))
+          trackEvent('chat')
+          await waitForArt()
+          return
+        }
+
+        if (finalReply) {
+          trackEvent('chat')
+          if (convId) {
+            setActiveId(convId)
+            bumpConversation(convId, title ?? '')
+          }
+          if (stillHere()) {
+            setMessages((m) => m.map((x) => (x.id === streamMsgId ? finalReply! : x)))
+            if (autoSpeakRef.current && !finalReply!.content?.startsWith('TEKA_IMG::')) {
+              speakRef.current?.(finalReply!)
+            }
+          }
+        } else {
+          // استریم تموم شد ولی جواب نهایی نیومد — حباب خالی رو بردار
+          setMessages((m) => m.filter((x) => x.id !== streamMsgId))
+        }
       } catch (err) {
-        setMessages((m) => m.filter((x) => x.id !== tempId))
+        setMessages((m) =>
+          m.filter((x) => x.id !== tempId && x.id !== streamMsgId)
+        )
         setInput(text)
         toast({
           title: 'اوه اوه! 🙈',
@@ -621,6 +760,7 @@ export default function TekaPage() {
         })
       } finally {
         setSending(false)
+        setStreamingId(null)
       }
     },
     [sending, regenerating, imageBusy, visionBusy, power, bumpConversation, toast, stopSpeaking, waitForNewMessages, trackEvent]
@@ -961,6 +1101,11 @@ export default function TekaPage() {
       {/* 🎉 کانفتی */}
       <ConfettiBurst trigger={confettiTrigger} />
 
+      {/* 🎬 انیمیشن ورود */}
+      <AnimatePresence>
+        {showSplash && <Splash onDone={finishSplash} />}
+      </AnimatePresence>
+
       <TekaSidebar
         conversations={conversations}
         activeId={activeId}
@@ -1216,11 +1361,12 @@ export default function TekaPage() {
                         }
                         speakingId={speakingId}
                         speakingLoadingId={speakingLoadingId}
+                        isStreaming={m.id === streamingId}
                       />
                     )
                   })}
                 {(imageBusy || awaitingArt) && <PaintingPlaceholder />}
-                {!imageBusy && !awaitingArt && busy && (
+                {!imageBusy && !awaitingArt && busy && !streamingId && (
                   <TypingIndicator power={power} analyzing={visionBusy} />
                 )}
               </div>
