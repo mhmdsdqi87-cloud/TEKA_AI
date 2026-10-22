@@ -171,3 +171,23 @@ Stage Summary:
 - تکا الان جواب‌ها رو زنده تایپ می‌کنه (چشم‌نواز و پرسرعت)، ورودش سینماییه و با صدای روان فارسی حرف میزنه.
 - فایل‌ها: llm.ts (+callLlmStream)، api/chat/route.ts (SSE)، api/tts/route.ts (v2)، teka.ts، page.tsx، message-list.tsx، splash.tsx (جدید)، globals.css، conversations/[id] فیکس.
 - کامیت: 56e0934 — شات‌ها: shots/v4-*.png
+
+---
+Task ID: 6
+Agent: main (Z.ai Code)
+Task: «انیمیشن ورود درست کار نمیکنه + حذف بخش بلند بخون + انیمیشن پیام ارسالی/دریافتی تاپ دنیا»
+
+Work Log:
+- ریشه باگ اسپلش: sessionStorage «teka-splash-seen» بعد از اولین دیدن، اسپلش رو همیشه می‌پرید (setShowSplash(false) تو mount) → کاربر فکر می‌کرد انیمیشن کار نمی‌کنه. بلاک حذف شد → حالا اسپلش هر بار لود صفحه پخش می‌شه (۲.۴s + قابل پرش با کلیک/کیبورد).
+- ریویل سینمایی محتوا: state جدید contentReady + wrapper motion.div دور کل ستون اصلی (هدر+چت+اینپوت) — بعد از پایان اسپلش با blur(8px)+y:22+scale:0.985 به شارپ می‌رسه (ease [0.22,1,0.36,1]، ۰.۷s). بدون mismatch چون SSR هم همین state اولیه رو رندر می‌کنه.
+- حذف کامل TTS «بلند بخون»: page.tsx (states autoSpeak/speakingId/speakingLoadingId، refs audioRef/speakRef/autoSpeakRef، توابع stopSpeaking/speak، دکمهٔ خواندن خودکار هدر، همهٔ call siteها و dependency arrays)، message-list.tsx (دکمهٔ بلند بخون حباب + props + importها + چیپ 🔊 EmptyState)، پاک شدن src/app/api/tts/route.ts، فیکس متادیتای layout.tsx. فقط ورودی صوتی (ASR 🎤) موند که چیز دیگه‌ایه.
+- انیمیشن ارسال (کاربر): SEND_SPRING فنری (stiffness 520/mass 0.9)، ورود از راست x:64 + scale 0.82 + rotate 1.6° + blur(6px)، کامپوننت SendBurst جدید = ۸ ذرهٔ طلایی/کهربایی/نارنجی پرتاب‌شونده + دبل شاک‌ویو حلقه‌ای — فقط روی آخرین پیام کاربر.
+- انیمیشن دریافت (تکا): RECV_SPRING نرم، ورود از چپ x:-44 + blur(12px)→شارپ، آواتار با پرش فنری rotate -40°→0 (stiffness 500/damping 18)، سوییپ نور طلایی w-1/3 skew-x-12 از -300% تا 460% داخل حباب بعد از ورود، کنار teka-border-anim و teka-msg-in موجود.
+- کسکید آبشاری: prop entryDelay = min((len-1-idx)×0.04، 0.42) از page.tsx — موقع باز کردن چت قدیمی، حباب‌ها از پایین به بالا دنبال هم با ریتم وارد می‌شن؛ پیام جدید همیشه delay صفر.
+- reduced-motion: useReducedMotion تو MessageBubble — حالت سادهٔ fade بدون burst/sweep/pop.
+- تست: lint پاک، tsc فقط ارورهای قدیمی examples (فایل‌های ما صفر)، Agent Browser: اسپلش ۳ فریم (early/mid/late) تأیید، ریویل بعد اسپلش تأیید، ارسال پیام زنده — فریم لحظهٔ انفجار با هالهٔ طلایی دور حباب + حباب استریم بلورین گرفته شد، استریم با کرسر و بوردر متحرک، موبایل ۳۹۰px سالم، کنسول صفر ارور.
+
+Stage Summary:
+- اسپلش حالا هر لود واقعاً پخش می‌شه و بعدش کل اپ با ریویل بلوری ظاهر می‌شه؛ فیچر «بلند بخون» به‌کلی حذف شد (UI + API + state)؛ ورود پیام‌ها سینمایی شد: ارسال = پرتاب فنری + انفجار ذرات طلایی + شاک‌ویو، دریافت = بلورین از چپ + آواتار پاپ + سوییپ نور + بوردر متحرک.
+- فایل‌ها: page.tsx، message-list.tsx، splash.tsx (دست‌نخورده — خودش سالم بود)، layout.tsx، حذف api/tts.
+- کامیت جدید + شات‌ها: shots/v5-*.png
