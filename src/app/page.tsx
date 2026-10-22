@@ -7,14 +7,11 @@ import {
   ArrowDown,
   ChevronDown,
   Download,
-  Loader2,
   LogIn,
   LogOut,
   Menu,
   Moon,
   Sun,
-  Volume2,
-  VolumeX,
   Zap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -98,13 +95,11 @@ export default function TekaPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [input, setInput] = useState('')
   const [power, setPower] = useState(true) // ⭐ پیش‌فرض: قدرتمند!
-  const [autoSpeak, setAutoSpeak] = useState(false)
-  const [speakingId, setSpeakingId] = useState<string | null>(null)
-  const [speakingLoadingId, setSpeakingLoadingId] = useState<string | null>(null)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const [awaitingArt, setAwaitingArt] = useState(false) // منتظر عکسِ در حال ساخت تو چت عادی
   const [streamingId, setStreamingId] = useState<string | null>(null) // ⚡ حباب استریم زنده
-  const [showSplash, setShowSplash] = useState(true) // 🎬 انیمیشن ورود
+  const [showSplash, setShowSplash] = useState(true) // 🎬 انیمیشن ورود (هر بار لود، پخش می‌شه)
+  const [contentReady, setContentReady] = useState(false) // ریویل محتوا بعد اسپلش
 
   // 🔐 حساب کاربری
   const [user, setUser] = useState<TekaUser | null>(null)
@@ -122,13 +117,9 @@ export default function TekaPage() {
   const mainRef = useRef<HTMLElement>(null)
   const auroraRef = useRef<HTMLDivElement>(null)
   const activeIdRef = useRef<string | null>(null)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
-  const speakRef = useRef<(m: ChatMessage) => void>(() => undefined)
-  const autoSpeakRef = useRef(false)
   const streakRef = useRef(0)
   const moodRef = useRef<TekaMoodClient>('normal')
   activeIdRef.current = activeId
-  autoSpeakRef.current = autoSpeak
   streakRef.current = streakCount
   moodRef.current = mood
 
@@ -138,14 +129,6 @@ export default function TekaPage() {
     try {
       const savedPower = localStorage.getItem('teka-power')
       setPower(savedPower === null ? true : savedPower === '1') // پیش‌فرض: قدرتمند
-      setAutoSpeak(localStorage.getItem('teka-autospeak') === '1')
-    } catch {
-      /* noop */
-    }
-
-    // 🎬 اگه اسپلش تو این نشست دیده شده، دیگه نشونش نده
-    try {
-      if (sessionStorage.getItem('teka-splash-seen') === '1') setShowSplash(false)
     } catch {
       /* noop */
     }
@@ -203,22 +186,10 @@ export default function TekaPage() {
     }
   }, [power])
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('teka-autospeak', autoSpeak ? '1' : '0')
-    } catch {
-      /* noop */
-    }
-  }, [autoSpeak])
-
-  // 🎬 پایان انیمیشن ورود
+  // 🎬 پایان انیمیشن ورود → ریویل سینمایی محتوا
   const finishSplash = useCallback(() => {
     setShowSplash(false)
-    try {
-      sessionStorage.setItem('teka-splash-seen', '1')
-    } catch {
-      /* noop */
-    }
+    setContentReady(true)
   }, [])
 
   // 🖱️ هالهٔ دنبال‌کنندهٔ موس
@@ -317,62 +288,6 @@ export default function TekaPage() {
     setShowScrollBtn(dist > 350)
   }, [])
 
-  // ---------- بلند بخون (قبل از بقیه تا هیچ‌وقت TDZ پیش نیاد) ----------
-  const stopSpeaking = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause()
-      audioRef.current = null
-    }
-    setSpeakingId(null)
-    setSpeakingLoadingId(null)
-  }, [])
-
-  const speak = useCallback(
-    async (message: ChatMessage) => {
-      if (speakingId === message.id) {
-        stopSpeaking()
-        return
-      }
-      stopSpeaking()
-      setSpeakingLoadingId(message.id)
-      try {
-        const res = await fetch('/api/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: message.content }),
-        })
-        if (!res.ok) {
-          const data = await res.json().catch(() => null)
-          throw new Error(data?.error || 'صدا ساخته نشد!')
-        }
-        const blob = await res.blob()
-        const url = URL.createObjectURL(blob)
-        const audio = new Audio(url)
-        audioRef.current = audio
-        setSpeakingLoadingId(null)
-        setSpeakingId(message.id)
-        audio.onended = () => {
-          setSpeakingId(null)
-          URL.revokeObjectURL(url)
-        }
-        audio.onerror = () => {
-          setSpeakingId(null)
-        }
-        await audio.play()
-      } catch (err) {
-        setSpeakingLoadingId(null)
-        setSpeakingId(null)
-        toast({
-          title: 'اوه اوه! 🙈',
-          description: err instanceof Error ? err.message : 'صدام درنیومد!',
-          variant: 'destructive',
-        })
-      }
-    },
-    [speakingId, stopSpeaking, toast]
-  )
-  speakRef.current = speak
-
   // 🎮 ثبت فعالیت (ماموریت + دستاورد + XP)
   const trackEvent = useCallback(
     (event: QuestEvent) => {
@@ -436,18 +351,16 @@ export default function TekaPage() {
       /* مهم نیست */
     }
     setUser(null)
-    stopSpeaking()
     setStreamingId(null)
     setActiveId(null)
     setMessages([])
     loadConversations()
     toast({ title: 'خارج شدی! 👋', description: 'هر وقت خواستی برگرد، ما همینیم!' })
-  }, [loadConversations, stopSpeaking, toast])
+  }, [loadConversations, toast])
 
   // ---------- باز کردن یک گفتگو ----------
   const openConversation = useCallback(
     async (id: string) => {
-      stopSpeaking()
       setStreamingId(null)
       if (id === activeIdRef.current) {
         setSidebarOpen(false)
@@ -484,7 +397,6 @@ export default function TekaPage() {
 
   // ---------- چت جدید ----------
   const newChat = useCallback(() => {
-    stopSpeaking()
     setStreamingId(null)
     setSidebarOpen(false)
     setActiveId(null)
@@ -569,7 +481,6 @@ export default function TekaPage() {
       const content = text.trim()
       if (!content) return
 
-      stopSpeaking()
       const usedConvId = activeIdRef.current
       const tempId = `local-${Date.now()}`
       const streamMsgId = `streaming-${Date.now()}`
@@ -614,9 +525,6 @@ export default function TekaPage() {
           if (fresh.length > 0) {
             if (activeIdRef.current === cid) {
               setMessages((m) => [...m, ...fresh])
-              if (autoSpeakRef.current && !fresh[0]?.content?.startsWith('TEKA_IMG::')) {
-                speakRef.current?.(fresh[0])
-              }
             }
             bumpConversation(cid, title ?? 'چت جدید')
           } else {
@@ -740,9 +648,6 @@ export default function TekaPage() {
           }
           if (stillHere()) {
             setMessages((m) => m.map((x) => (x.id === streamMsgId ? finalReply! : x)))
-            if (autoSpeakRef.current && !finalReply!.content?.startsWith('TEKA_IMG::')) {
-              speakRef.current?.(finalReply!)
-            }
           }
         } else {
           // استریم تموم شد ولی جواب نهایی نیومد — حباب خالی رو بردار
@@ -763,7 +668,7 @@ export default function TekaPage() {
         setStreamingId(null)
       }
     },
-    [sending, regenerating, imageBusy, visionBusy, power, bumpConversation, toast, stopSpeaking, waitForNewMessages, trackEvent]
+    [sending, regenerating, imageBusy, visionBusy, power, bumpConversation, toast, waitForNewMessages, trackEvent]
   )
 
   // ---------- ساخت تصویر ----------
@@ -773,7 +678,6 @@ export default function TekaPage() {
       const content = prompt.trim()
       if (!content) return
 
-      stopSpeaking()
       const usedConvId = activeIdRef.current
       const tempId = `local-img-${Date.now()}`
 
@@ -829,7 +733,7 @@ export default function TekaPage() {
         setImageBusy(false)
       }
     },
-    [sending, regenerating, imageBusy, visionBusy, bumpConversation, toast, stopSpeaking, waitForNewMessages, trackEvent]
+    [sending, regenerating, imageBusy, visionBusy, bumpConversation, toast, waitForNewMessages, trackEvent]
   )
 
   // ---------- تحلیل عکس کاربر (چشم ماشینی تکا) ----------
@@ -837,7 +741,6 @@ export default function TekaPage() {
     async (imageDataUrl: string, question: string) => {
       if (sending || regenerating || imageBusy || visionBusy) return
 
-      stopSpeaking()
       const usedConvId = activeIdRef.current
       const tempId = `local-uimg-${Date.now()}`
       const localContent = `${MARKER_UIMG}${imageDataUrl}\n${question}`
@@ -864,9 +767,6 @@ export default function TekaPage() {
         trackEvent('vision')
         if (activeIdRef.current === usedConvId) {
           setMessages((m) => [...m, data.reply])
-          if (autoSpeakRef.current) {
-            speakRef.current?.(data.reply)
-          }
         }
         setActiveId(data.conversationId)
         bumpConversation(data.conversationId, data.title)
@@ -882,7 +782,7 @@ export default function TekaPage() {
         setVisionBusy(false)
       }
     },
-    [sending, regenerating, imageBusy, visionBusy, bumpConversation, toast, stopSpeaking, trackEvent]
+    [sending, regenerating, imageBusy, visionBusy, bumpConversation, toast, trackEvent]
   )
 
   // ---------- آنالیز فایل/سند ----------
@@ -890,7 +790,6 @@ export default function TekaPage() {
     async (file: PendingFile, question: string) => {
       if (sending || regenerating || imageBusy || visionBusy) return
 
-      stopSpeaking()
       const usedConvId = activeIdRef.current
       const tempId = `local-file-${Date.now()}`
       const localContent = `${MARKER_FILE}${file.name}::${file.size}::${question}`
@@ -920,9 +819,6 @@ export default function TekaPage() {
         trackEvent('file')
         if (activeIdRef.current === usedConvId) {
           setMessages((m) => [...m, data.reply])
-          if (autoSpeakRef.current) {
-            speakRef.current?.(data.reply)
-          }
         }
         setActiveId(data.conversationId)
         bumpConversation(data.conversationId, data.title)
@@ -938,13 +834,12 @@ export default function TekaPage() {
         setVisionBusy(false)
       }
     },
-    [sending, regenerating, imageBusy, visionBusy, power, bumpConversation, toast, stopSpeaking, trackEvent]
+    [sending, regenerating, imageBusy, visionBusy, power, bumpConversation, toast, trackEvent]
   )
 
   // ---------- دوباره جواب بده ----------
   const regenerate = useCallback(async () => {
     if (sending || regenerating || imageBusy || visionBusy || !activeIdRef.current) return
-    stopSpeaking()
     setRegenerating(true)
     try {
       const res = await fetch('/api/chat/regenerate', {
@@ -1118,7 +1013,16 @@ export default function TekaPage() {
         bonusXp={bonusXp}
       />
 
-      <div className="relative z-10 flex min-w-0 flex-1 flex-col">
+      <motion.div
+        className="relative z-10 flex min-w-0 flex-1 flex-col"
+        initial={{ opacity: 0, y: 22, scale: 0.985, filter: 'blur(8px)' }}
+        animate={
+          contentReady
+            ? { opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }
+            : { opacity: 0, y: 22, scale: 0.985, filter: 'blur(8px)' }
+        }
+        transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+      >
         {/* هدر */}
         <header className="flex items-center gap-1.5 border-b border-border/60 bg-background/70 px-3 py-2.5 backdrop-blur-xl md:gap-2 md:px-6">
           <Button
@@ -1211,24 +1115,6 @@ export default function TekaPage() {
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-
-          {/* خواندن خودکار */}
-          <Button
-            variant={autoSpeak ? 'default' : 'ghost'}
-            size="icon"
-            onClick={() => {
-              setAutoSpeak((v) => {
-                if (v) stopSpeaking()
-                return !v
-              })
-            }}
-            className={autoSpeak ? 'shadow-lg shadow-primary/30' : 'text-muted-foreground'}
-            aria-pressed={autoSpeak}
-            aria-label="خواندن خودکار جواب‌ها"
-            title="خودکار بلند بخون جواب‌هارو"
-          >
-            {mounted && autoSpeak ? <Volume2 className="size-4.5" /> : <VolumeX className="size-4.5" />}
-          </Button>
 
           {/* خروجی چت */}
           <Button
@@ -1352,16 +1238,15 @@ export default function TekaPage() {
                         message={m}
                         isLastAssistant={m.id === lastAssistantId && !busy}
                         onCopy={copyText}
-                        onSpeak={speak}
                         onRegenerate={regenerate}
                         onRedraw={
                           redrawPrompt && !busy
                             ? () => sendImage(redrawPrompt)
                             : undefined
                         }
-                        speakingId={speakingId}
-                        speakingLoadingId={speakingLoadingId}
                         isStreaming={m.id === streamingId}
+                        entryDelay={Math.min((messages.length - 1 - idx) * 0.04, 0.42)}
+                        burst={m.role === 'user' && idx === messages.length - 1}
                       />
                     )
                   })}
@@ -1409,7 +1294,7 @@ export default function TekaPage() {
           power={power}
           onVoiceSent={() => trackEvent('voice')}
         />
-      </div>
+      </motion.div>
 
       {/* 🔐 دیالوگ ورود/ثبت‌نام */}
       <AuthDialog

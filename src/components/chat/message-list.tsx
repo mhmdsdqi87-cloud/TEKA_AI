@@ -2,7 +2,7 @@
 
 import Image from 'next/image'
 import { useEffect, useMemo, useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import {
   Check,
   Code2,
@@ -13,8 +13,6 @@ import {
   Lightbulb,
   RefreshCw,
   Sparkles,
-  Volume2,
-  Loader2,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -47,6 +45,61 @@ const TYPING_PHRASES = [
 ]
 
 const SPRING = { type: 'spring' as const, stiffness: 420, damping: 26 }
+/** اسپرینگ پرتابی پیام کاربر — تندتر و فنری‌تر */
+const SEND_SPRING = { type: 'spring' as const, stiffness: 520, damping: 26, mass: 0.9 }
+/** اسپرینگ نرم پیام تکا */
+const RECV_SPRING = { type: 'spring' as const, stiffness: 360, damping: 27 }
+
+/* ⭐ جهت‌های ثابت ذرات انفجار ارسال (طلایی/کهربایی/نارنجی) */
+const BURST_PARTICLES = [
+  { x: -38, y: -16, s: 1.0, c: 'bg-primary' },
+  { x: -28, y: 14, s: 0.7, c: 'bg-amber-400' },
+  { x: -44, y: 4, s: 0.55, c: 'bg-orange-400' },
+  { x: 30, y: -20, s: 0.8, c: 'bg-primary' },
+  { x: 40, y: 8, s: 0.5, c: 'bg-amber-300' },
+  { x: 12, y: -30, s: 0.65, c: 'bg-orange-300' },
+  { x: -10, y: -34, s: 0.75, c: 'bg-amber-400' },
+  { x: 22, y: 26, s: 0.5, c: 'bg-primary' },
+]
+
+/**
+ * 💥 انفجار طلایی لحظهٔ ارسال — ذرات + شاک‌ویو
+ * فقط روی آخرین پیام کاربر رندر می‌شه (موقع باز کردن چت هم یه بار می‌درکه = کسکید خفن)
+ */
+function SendBurst() {
+  return (
+    <span aria-hidden="true" className="pointer-events-none absolute inset-0 z-20 overflow-visible">
+      {/* حلقهٔ شاک‌ویو */}
+      <motion.span
+        className="absolute inset-0 rounded-2xl border-2 border-primary/70"
+        initial={{ opacity: 0.85, scale: 0.92 }}
+        animate={{ opacity: 0, scale: 1.45 }}
+        transition={{ duration: 0.55, ease: 'easeOut' }}
+      />
+      <motion.span
+        className="absolute inset-0 rounded-2xl border border-primary/40"
+        initial={{ opacity: 0.6, scale: 0.95 }}
+        animate={{ opacity: 0, scale: 1.75 }}
+        transition={{ duration: 0.75, delay: 0.08, ease: 'easeOut' }}
+      />
+      {/* ذرات طلایی که پرت می‌شن بیرون */}
+      {BURST_PARTICLES.map((p, i) => (
+        <motion.span
+          key={i}
+          className={`absolute left-1/2 top-1/2 size-1.5 rounded-full ${p.c} shadow-[0_0_8px_2px] shadow-primary/40`}
+          initial={{ x: 0, y: 0, opacity: 0, scale: 0 }}
+          animate={{
+            x: p.x,
+            y: p.y,
+            opacity: [0, 1, 1, 0],
+            scale: [0, 1.25 * p.s, p.s, 0],
+          }}
+          transition={{ duration: 0.7, delay: 0.06 + i * 0.025, ease: 'easeOut' }}
+        />
+      ))}
+    </span>
+  )
+}
 
 /**
  * شافل با seed ثابت (بر اساس روز)
@@ -294,12 +347,13 @@ type BubbleProps = {
   message: ChatMessage
   isLastAssistant: boolean
   onCopy: (text: string) => void
-  onSpeak: (message: ChatMessage) => void
   onRegenerate: () => void
   onRedraw?: () => void
-  speakingId: string | null
-  speakingLoadingId: string | null
   isStreaming?: boolean
+  /** تأخیر ورود برای کسکید آبشاری موقع باز کردن چت (از پایین شروع می‌شه) */
+  entryDelay?: number
+  /** انفجار طلایی ارسال — فقط برای آخرین پیام کاربر */
+  burst?: boolean
 }
 
 /* ---------- تجزیهٔ پیام کاربر (عکس/فایل پیوست) ---------- */
@@ -356,25 +410,35 @@ export function MessageBubble({
   message,
   isLastAssistant,
   onCopy,
-  onSpeak,
   onRegenerate,
   onRedraw,
-  speakingId,
-  speakingLoadingId,
   isStreaming,
+  entryDelay = 0,
+  burst = false,
 }: BubbleProps) {
   const [copied, setCopied] = useState(false)
+  const reduced = useReducedMotion() ?? false
 
   if (message.role === 'user') {
     const parsed = parseUserContent(message.content)
     return (
       <motion.div
-        initial={{ opacity: 0, x: 26, scale: 0.96 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={SPRING}
-        className="flex justify-end"
+        initial={
+          reduced
+            ? { opacity: 0 }
+            : { opacity: 0, x: 64, scale: 0.82, rotate: 1.6, filter: 'blur(6px)' }
+        }
+        animate={
+          reduced
+            ? { opacity: 1 }
+            : { opacity: 1, x: 0, scale: 1, rotate: 0, filter: 'blur(0px)' }
+        }
+        transition={{ ...SEND_SPRING, delay: entryDelay }}
+        className="relative flex justify-end"
       >
-        <div className="flex max-w-[85%] flex-col items-end gap-1.5 md:max-w-[70%]">
+        <div className="relative flex max-w-[85%] flex-col items-end gap-1.5 md:max-w-[70%]">
+          {/* 💥 انفجار طلایی + شاک‌ویو */}
+          {burst && !reduced && <SendBurst />}
           {/* عکس ارسالی کاربر */}
           {parsed.imageUrl && (
             <div className="teka-img-frame w-full max-w-[280px]">
@@ -405,12 +469,32 @@ export function MessageBubble({
   if (message.content.startsWith(IMAGE_MARKER)) {
     return (
       <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={SPRING}
+        initial={
+          reduced
+            ? { opacity: 0 }
+            : { opacity: 0, x: -40, scale: 0.92, filter: 'blur(10px)' }
+        }
+        animate={
+          reduced
+            ? { opacity: 1 }
+            : { opacity: 1, x: 0, scale: 1, filter: 'blur(0px)' }
+        }
+        transition={{ ...RECV_SPRING, delay: entryDelay }}
         className="group flex items-start gap-2"
       >
-        <TekaAvatar />
+        <motion.span
+          className="shrink-0"
+          initial={reduced ? undefined : { scale: 0, rotate: -40 }}
+          animate={reduced ? undefined : { scale: 1, rotate: 0 }}
+          transition={{
+            type: 'spring',
+            stiffness: 500,
+            damping: 18,
+            delay: entryDelay + 0.06,
+          }}
+        >
+          <TekaAvatar />
+        </motion.span>
         <div className="min-w-0 max-w-[85%] md:max-w-[75%]">
           <ImageMessage content={message.content} onRedraw={onRedraw} />
         </div>
@@ -418,19 +502,37 @@ export function MessageBubble({
     )
   }
 
-  const isSpeaking = speakingId === message.id
-  const isSpeakingLoading = speakingLoadingId === message.id
-
   return (
     <motion.div
-      initial={{ opacity: 0, y: 18, scale: 0.97 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={SPRING}
+      initial={
+        reduced
+          ? { opacity: 0 }
+          : { opacity: 0, x: -44, scale: 0.9, filter: 'blur(12px)' }
+      }
+      animate={
+        reduced
+          ? { opacity: 1 }
+          : { opacity: 1, x: 0, scale: 1, filter: 'blur(0px)' }
+      }
+      transition={{ ...RECV_SPRING, delay: entryDelay }}
       className="teka-msg-in group flex items-start gap-2"
     >
-      <TekaAvatar />
+      {/* 👾 آواتار تکا با پرش فنری */}
+      <motion.span
+        className="shrink-0"
+        initial={reduced ? undefined : { scale: 0, rotate: -40 }}
+        animate={reduced ? undefined : { scale: 1, rotate: 0 }}
+        transition={{
+          type: 'spring',
+          stiffness: 500,
+          damping: 18,
+          delay: entryDelay + 0.06,
+        }}
+      >
+        <TekaAvatar />
+      </motion.span>
       <div className="min-w-0 max-w-[85%] md:max-w-[75%]">
-        <div className="teka-md teka-border-anim rounded-2xl rounded-tr-md px-4 py-3 text-[15px]">
+        <div className="teka-md teka-border-anim relative overflow-hidden rounded-2xl rounded-tr-md px-4 py-3 text-[15px]">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
           {/* نشانگر چشمک‌زن هنگام استریم جواب */}
           {message.role === 'assistant' &&
@@ -438,6 +540,20 @@ export function MessageBubble({
             !message.content.startsWith(IMAGE_MARKER) && (
               <span className="teka-cursor" aria-hidden="true" />
             )}
+          {/* ✨ نور ردشوندهٔ طلایی لحظهٔ ورود جواب */}
+          {!reduced && (
+            <motion.span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 w-1/3 skew-x-12 bg-gradient-to-r from-transparent via-primary/20 to-transparent"
+              initial={{ x: '-300%' }}
+              animate={{ x: '460%' }}
+              transition={{
+                duration: 1,
+                delay: entryDelay + 0.15,
+                ease: 'easeInOut',
+              }}
+            />
+          )}
         </div>
 
         {/* اکشن‌ها */}
@@ -453,18 +569,6 @@ export function MessageBubble({
           >
             {copied ? <Check className="size-3.5 text-primary" /> : <Copy className="size-3.5" />}
             {copied ? 'کپی شد!' : 'کپی'}
-          </button>
-          <button
-            onClick={() => onSpeak(message)}
-            className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            aria-label="بلند بخون"
-          >
-            {isSpeakingLoading ? (
-              <Loader2 className="size-3.5 animate-spin text-primary" />
-            ) : (
-              <Volume2 className={`size-3.5 ${isSpeaking ? 'text-primary' : ''}`} />
-            )}
-            {isSpeaking ? 'دارم می‌خونم…' : 'بلند بخون'}
           </button>
           {isLastAssistant && (
             <button
@@ -529,7 +633,6 @@ export function EmptyState({
           { icon: '📷', label: 'عکس بفرست تا ببینم' },
           { icon: '📄', label: 'فایل و PDF آنالیز کنم' },
           { icon: '🎤', label: 'با صدا بگو' },
-          { icon: '🔊', label: 'بلند بخون' },
           { icon: '🧠', label: 'حافظهٔ دائمی' },
           { icon: '⚡', label: power ? 'حالت قدرتمند روشنه' : 'حالت قدرتمند' },
         ].map((f, i) => (
