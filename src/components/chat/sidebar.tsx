@@ -3,7 +3,7 @@
 import Image from 'next/image'
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Plus, MessageSquare, Trash2, X, BrainCircuit, Search } from 'lucide-react'
+import { Plus, MessageSquare, Trash2, X, BrainCircuit, Search, Flame } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -44,6 +44,24 @@ export function TekaSidebar({
   const [deleteTarget, setDeleteTarget] = useState<ConversationSummary | null>(null)
   const [query, setQuery] = useState('')
 
+  // ---------- سیستم سطح و XP ----------
+  const { level, progress, rank, totalMsgs } = useMemo(() => {
+    const total = conversations.reduce((s, c) => s + (c.messageCount ?? 0), 0)
+    const lvl = Math.floor(total / 10) + 1
+    const prog = (total % 10) / 10
+    const rankName =
+      lvl >= 15
+        ? 'افسانه‌ای 🔥'
+        : lvl >= 10
+          ? 'استار ⚡'
+          : lvl >= 5
+            ? 'حرفه‌ای 😎'
+            : lvl >= 3
+              ? 'رفیق باحال 🙌'
+              : 'تازه‌کار خفن 🌱'
+    return { level: lvl, progress: prog, rank: rankName, totalMsgs: total }
+  }, [conversations])
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return conversations
@@ -62,7 +80,7 @@ export function TekaSidebar({
       />
 
       <aside
-        className={`fixed inset-y-0 right-0 z-50 flex w-80 flex-col border-sidebar-border bg-sidebar/95 backdrop-blur-xl transition-transform duration-300 md:static md:z-auto md:translate-x-0 md:bg-sidebar ${
+        className={`teka-glass fixed inset-y-0 right-0 z-50 flex w-80 flex-col !border-sidebar-border transition-transform duration-300 md:static md:z-auto md:translate-x-0 ${
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
         aria-label="تاریخچه چت‌ها"
@@ -198,9 +216,41 @@ export function TekaSidebar({
           )}
         </nav>
 
-        {/* فوتر سایدبار */}
+        {/* فوتر سایدبار: سطح و XP */}
         <div className="border-t border-sidebar-border p-4">
-          <div className="flex items-center gap-2 rounded-xl bg-primary/10 px-3 py-2.5 text-primary">
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="teka-glass rounded-2xl p-3"
+          >
+            <div className="flex items-center gap-2">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary ring-1 ring-primary/30">
+                <Flame className="size-4.5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold">
+                  سطح {new Intl.NumberFormat('fa-IR').format(level)} — {rank}
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  {new Intl.NumberFormat('fa-IR').format(totalMsgs)} پیام با تکا
+                </p>
+              </div>
+            </div>
+            <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-muted">
+              <motion.div
+                className="teka-xp-bar h-full rounded-full"
+                initial={{ width: 0 }}
+                animate={{ width: `${Math.round(progress * 100)}%` }}
+                transition={{ type: 'spring', stiffness: 120, damping: 20 }}
+              />
+            </div>
+            <p className="mt-1.5 text-[10px] text-muted-foreground">
+              {progress === 0
+                ? 'با هر ۱۰ پیام، یه سطح بالا برو! 🚀'
+                : `${new Intl.NumberFormat('fa-IR').format(10 - (totalMsgs % 10))} پیام تا سطح بعد ⚡`}
+            </p>
+          </motion.div>
+          <div className="mt-2.5 flex items-center gap-2 rounded-xl bg-primary/10 px-3 py-2.5 text-primary">
             <BrainCircuit className="size-4 shrink-0" />
             <p className="text-xs leading-5">
               تکا حافظه داره — همهٔ چت‌ها رو یادشه و یاد می‌گیره!

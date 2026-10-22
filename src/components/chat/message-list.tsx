@@ -7,6 +7,7 @@ import {
   Check,
   Code2,
   Copy,
+  Download,
   Laugh,
   Lightbulb,
   RefreshCw,
@@ -17,6 +18,8 @@ import {
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from './types'
+
+const IMAGE_MARKER = 'TEKA_IMG::'
 
 const ALL_SUGGESTIONS: { icon: React.ElementType; text: string }[] = [
   { icon: Sparkles, text: 'سلام تکا! خودتو معرفی کن 🙂' },
@@ -39,6 +42,8 @@ const TYPING_PHRASES = [
   'در حال پردازش خفن…',
 ]
 
+const SPRING = { type: 'spring' as const, stiffness: 340, damping: 28 }
+
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr]
   for (let i = a.length - 1; i > 0; i--) {
@@ -51,7 +56,7 @@ function shuffle<T>(arr: T[]): T[] {
 function TekaAvatar({ size = 'size-8' }: { size?: string }) {
   return (
     <div
-      className={`${size} relative shrink-0 overflow-hidden rounded-full ring-2 ring-primary/50`}
+      className={`${size} relative shrink-0 overflow-hidden rounded-full ring-2 ring-primary/50 shadow-lg shadow-primary/25`}
     >
       <Image
         src="/teka-logo-gold.png"
@@ -64,24 +69,32 @@ function TekaAvatar({ size = 'size-8' }: { size?: string }) {
   )
 }
 
-export function TypingIndicator({ power }: { power?: boolean }) {
+export function TypingIndicator({
+  power,
+  painting,
+}: {
+  power?: boolean
+  painting?: boolean
+}) {
   const [phraseIdx, setPhraseIdx] = useState(0)
 
   useEffect(() => {
+    if (painting) return
     const t = setInterval(() => setPhraseIdx((i) => (i + 1) % TYPING_PHRASES.length), 2000)
     return () => clearInterval(t)
-  }, [])
+  }, [painting])
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
+      transition={SPRING}
       className="flex items-end gap-2"
       aria-label="تکا داره فکر می‌کنه"
       role="status"
     >
       <TekaAvatar />
-      <div className="flex items-center gap-2 rounded-2xl rounded-tr-md border bg-card px-4 py-3.5 shadow-sm">
+      <div className="teka-think teka-glass flex items-center gap-2 rounded-2xl rounded-tr-md px-4 py-3.5">
         <span className="flex items-center gap-1.5">
           <span className="teka-dot size-2 rounded-full bg-primary" />
           <span className="teka-dot size-2 rounded-full bg-primary" />
@@ -89,16 +102,54 @@ export function TypingIndicator({ power }: { power?: boolean }) {
         </span>
         <AnimatePresence mode="wait">
           <motion.span
-            key={phraseIdx}
+            key={painting ? 'painting' : phraseIdx}
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.25 }}
             className="text-xs text-muted-foreground"
           >
-            {power ? '⚡ دارم عمیق فکر می‌کنم…' : TYPING_PHRASES[phraseIdx]}
+            {painting
+              ? '🎨 داره نقاشی می‌کشه…'
+              : power
+                ? '⚡ دارم عمیق فکر می‌کنم…'
+                : TYPING_PHRASES[phraseIdx]}
           </motion.span>
         </AnimatePresence>
+      </div>
+    </motion.div>
+  )
+}
+
+/* ---------- پیام تصویری (خروجی تصویرساز) ---------- */
+function ImageMessage({ content }: { content: string }) {
+  const dataUrl = content.slice(IMAGE_MARKER.length)
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.92, y: 14 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      transition={{ ...SPRING, delay: 0.05 }}
+      className="teka-img-frame w-full max-w-sm"
+    >
+      <img
+        src={dataUrl}
+        alt="تصویر ساخته‌شده توسط تکا"
+        className="block w-full"
+        loading="lazy"
+      />
+      <div className="flex items-center justify-between bg-background/70 px-3 py-2 backdrop-blur">
+        <span className="text-[11px] font-medium text-muted-foreground">
+          🎨 تصویرساز تکا
+        </span>
+        <a
+          href={dataUrl}
+          download={`teka-art-${Date.now()}.png`}
+          className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10"
+          aria-label="دانلود تصویر"
+        >
+          <Download className="size-3.5" />
+          دانلود
+        </a>
       </div>
     </motion.div>
   )
@@ -128,13 +179,30 @@ export function MessageBubble({
   if (message.role === 'user') {
     return (
       <motion.div
-        initial={{ opacity: 0, y: 12, scale: 0.98 }}
+        initial={{ opacity: 0, y: 14, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.25 }}
+        transition={SPRING}
         className="flex justify-end"
       >
-        <div className="max-w-[85%] rounded-2xl rounded-tl-md bg-primary px-4 py-3 text-[15px] leading-7 text-primary-foreground shadow-lg shadow-primary/15 md:max-w-[70%]">
+        <div className="max-w-[85%] rounded-2xl rounded-tl-md bg-gradient-to-tl from-primary to-primary/80 px-4 py-3 text-[15px] leading-7 text-primary-foreground shadow-lg shadow-primary/25 md:max-w-[70%]">
           <p className="whitespace-pre-wrap break-words">{message.content}</p>
+        </div>
+      </motion.div>
+    )
+  }
+
+  // پیام تصویری
+  if (message.content.startsWith(IMAGE_MARKER)) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={SPRING}
+        className="group flex items-start gap-2"
+      >
+        <TekaAvatar />
+        <div className="min-w-0 max-w-[85%] md:max-w-[75%]">
+          <ImageMessage content={message.content} />
         </div>
       </motion.div>
     )
@@ -147,12 +215,12 @@ export function MessageBubble({
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25 }}
+      transition={SPRING}
       className="group flex items-start gap-2"
     >
       <TekaAvatar />
       <div className="min-w-0 max-w-[85%] md:max-w-[75%]">
-        <div className="teka-md rounded-2xl rounded-tr-md border bg-card px-4 py-3 text-[15px] shadow-sm">
+        <div className="teka-md teka-glass rounded-2xl rounded-tr-md px-4 py-3 text-[15px]">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
         </div>
 
@@ -235,23 +303,25 @@ export function EmptyState({
         هوش مصنوعی خودمونیِ فارسی‌زبان — ساختهٔ{' '}
         <span className="font-semibold text-primary">محمد صادقی</span> 🙌
         <br />
-        هرچی دلت خواست بپرس؛ خاطره‌هامو هم همیشه یادم می‌مونه 🧠
+        باهات حرف می‌زنم، برات عکس می‌سازم و همه‌چی رو یادم می‌مونه 🧠
       </p>
 
       {/* امکانات */}
       <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
         {[
-          { icon: '🧠', label: 'حافظهٔ دائمی' },
+          { icon: '🎨', label: 'تصویرساز هوشمند' },
+          { icon: '🎤', label: 'با صدا بگو' },
           { icon: '🔊', label: 'بلند بخون' },
+          { icon: '🧠', label: 'حافظهٔ دائمی' },
           { icon: '⚡', label: power ? 'حالت قدرتمند روشنه' : 'حالت قدرتمند' },
-          { icon: '🔄', label: 'جواب دوباره' },
-        ].map((f) => (
+          { icon: '🏆', label: 'سطح‌بندی خفن' },
+        ].map((f, i) => (
           <motion.span
             key={f.label}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15 }}
-            className="rounded-full border bg-card/70 px-3 py-1 text-[11px] text-muted-foreground"
+            transition={{ delay: 0.1 + i * 0.05 }}
+            className="teka-glass rounded-full px-3 py-1 text-[11px] text-muted-foreground"
           >
             {f.icon} {f.label}
           </motion.span>
@@ -266,7 +336,7 @@ export function EmptyState({
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 + i * 0.07 }}
             onClick={() => onSuggestion(s.text)}
-            className="flex items-center gap-2.5 rounded-2xl border bg-card/60 px-4 py-3 text-start text-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:bg-card hover:shadow-lg hover:shadow-primary/10 active:scale-[0.98]"
+            className="teka-glass flex items-center gap-2.5 rounded-2xl px-4 py-3 text-start text-sm transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/15 active:scale-[0.98]"
           >
             <s.icon className="size-4 shrink-0 text-primary" />
             <span className="leading-6">{s.text}</span>

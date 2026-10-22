@@ -186,7 +186,7 @@
 .teka-blob {
   position: absolute;
   border-radius: 9999px;
-  filter: blur(90px);
+  filter: blur(100px);
   will-change: transform;
 }
 .teka-blob-1 {
@@ -213,6 +213,15 @@
   background: var(--glow-3);
   animation: teka-drift-3 30s ease-in-out infinite;
 }
+.teka-blob-4 {
+  width: 460px;
+  height: 460px;
+  bottom: -180px;
+  right: 22%;
+  background: var(--glow-1);
+  opacity: 0.7;
+  animation: teka-drift-4 34s ease-in-out infinite;
+}
 @keyframes teka-drift-1 {
   0%, 100% { transform: translate(0, 0) scale(1); }
   50% { transform: translate(-70px, 60px) scale(1.15); }
@@ -225,6 +234,24 @@
   0%, 100% { transform: translate(0, 0) scale(1); }
   33% { transform: translate(50px, -40px) scale(0.9); }
   66% { transform: translate(-40px, 40px) scale(1.12); }
+}
+@keyframes teka-drift-4 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  40% { transform: translate(-60px, -70px) scale(1.18); }
+  70% { transform: translate(40px, 30px) scale(0.95); }
+}
+
+/* ---------- ستاره‌های چشمک‌زن پس‌زمینه ---------- */
+.teka-star {
+  position: absolute;
+  border-radius: 9999px;
+  background: var(--primary);
+  opacity: 0.4;
+  animation: teka-twinkle var(--dur, 4s) ease-in-out infinite;
+}
+@keyframes teka-twinkle {
+  0%, 100% { opacity: 0.08; transform: scale(0.6); }
+  50% { opacity: 0.65; transform: scale(1.2); }
 }
 
 /* ---------- انیمیشن شناور لوگو ---------- */
@@ -249,7 +276,12 @@
 /* ---------- گرادیانت متن ---------- */
 .teka-gradient-text {
   display: inline-block;
-  background: linear-gradient(120deg, var(--primary), oklch(0.7 0.13 60) 55%, var(--primary));
+  background-image: linear-gradient(
+    120deg,
+    var(--primary) 15%,
+    color-mix(in oklab, var(--primary) 65%, oklch(0.97 0.06 95)) 50%,
+    var(--primary) 85%
+  );
   background-size: 200% auto;
   -webkit-background-clip: text;
   background-clip: text;
@@ -271,6 +303,92 @@
 }
 .teka-dot:nth-child(2) { animation-delay: 0.15s; }
 .teka-dot:nth-child(3) { animation-delay: 0.3s; }
+
+/* ---------- شیشه‌ای (glassmorphism) ---------- */
+.teka-glass {
+  background: color-mix(in oklab, var(--card) 62%, transparent);
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+  border: 1px solid color-mix(in oklab, var(--primary) 13%, transparent);
+  box-shadow: 0 8px 32px -12px color-mix(in oklab, var(--primary) 18%, transparent);
+}
+.teka-glass-strong {
+  background: color-mix(in oklab, var(--card) 78%, transparent);
+  backdrop-filter: blur(26px) saturate(1.45);
+  -webkit-backdrop-filter: blur(26px) saturate(1.45);
+  border: 1px solid color-mix(in oklab, var(--primary) 18%, transparent);
+  box-shadow: 0 16px 48px -16px color-mix(in oklab, var(--primary) 28%, transparent);
+}
+
+/* ---------- درخشش جرقه‌ای دکمه‌ها ---------- */
+.teka-shine {
+  position: relative;
+  overflow: hidden;
+}
+.teka-shine::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    color-mix(in oklab, white 35%, transparent) 50%,
+    transparent 60%
+  );
+  transform: translateX(-130%);
+  pointer-events: none;
+}
+.teka-shine:hover::after {
+  transform: translateX(130%);
+  transition: transform 0.7s ease;
+}
+
+/* ---------- کارت فکر کردن با هاله ---------- */
+.teka-think {
+  animation: teka-think-glow 2.2s ease-in-out infinite;
+}
+@keyframes teka-think-glow {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 10px 36px -10px color-mix(in oklab, var(--primary) 50%, transparent); }
+}
+
+/* ---------- ضبط صدا (حلقهٔ قرمز نبض‌دار) ---------- */
+.teka-rec {
+  animation: teka-rec-pulse 1.1s ease-out infinite;
+}
+@keyframes teka-rec-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--destructive) 55%, transparent); }
+  75% { box-shadow: 0 0 0 12px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* ---------- قاب شیشه‌ای تصاویر ---------- */
+.teka-img-frame {
+  overflow: hidden;
+  border-radius: 1.25rem;
+  border: 1px solid color-mix(in oklab, var(--primary) 28%, transparent);
+  box-shadow: 0 18px 50px -16px color-mix(in oklab, var(--primary) 40%, transparent);
+}
+
+/* ---------- نوار پیشرفت XP ---------- */
+.teka-xp-bar {
+  background: linear-gradient(90deg, var(--primary), oklch(0.75 0.15 60));
+  box-shadow: 0 0 12px color-mix(in oklab, var(--primary) 55%, transparent);
+}
+
+/* ---------- احترام به کاهش حرکت ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .teka-blob,
+  .teka-star,
+  .teka-float,
+  .teka-pulse-ring,
+  .teka-dot,
+  .teka-rec,
+  .teka-think,
+  .teka-gradient-text {
+    animation: none !important;
+  }
+}
 
 /* ---------- مارک‌دون داخل چت ---------- */
 .teka-md {

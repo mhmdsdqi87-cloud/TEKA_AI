@@ -11,6 +11,7 @@ import {
   Moon,
   Sun,
   Volume2,
+  VolumeX,
   Zap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -32,9 +33,11 @@ export default function TekaPage() {
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [sending, setSending] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
+  const [imageBusy, setImageBusy] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [input, setInput] = useState('')
   const [power, setPower] = useState(false)
+  const [autoSpeak, setAutoSpeak] = useState(false)
   const [speakingId, setSpeakingId] = useState<string | null>(null)
   const [speakingLoadingId, setSpeakingLoadingId] = useState<string | null>(null)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
@@ -43,13 +46,17 @@ export default function TekaPage() {
   const mainRef = useRef<HTMLElement>(null)
   const activeIdRef = useRef<string | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const speakRef = useRef<(m: ChatMessage) => void>(() => undefined)
+  const autoSpeakRef = useRef(false)
   activeIdRef.current = activeId
+  autoSpeakRef.current = autoSpeak
 
   // ---------- mount ----------
   useEffect(() => {
     setMounted(true)
     try {
       setPower(localStorage.getItem('teka-power') === '1')
+      setAutoSpeak(localStorage.getItem('teka-autospeak') === '1')
     } catch {
       /* noop */
     }
@@ -62,6 +69,14 @@ export default function TekaPage() {
       /* noop */
     }
   }, [power])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('teka-autospeak', autoSpeak ? '1' : '0')
+    } catch {
+      /* noop */
+    }
+  }, [autoSpeak])
 
   // ---------- لیست گفتگوها ----------
   const loadConversations = useCallback(async () => {
@@ -99,7 +114,7 @@ export default function TekaPage() {
   // ---------- اسکرول خودکار ----------
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages, sending, regenerating])
+  }, [messages, sending, regenerating, imageBusy])
 
   // ---------- Ctrl+K چت جدید ----------
   useEffect(() => {
@@ -121,6 +136,62 @@ export default function TekaPage() {
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight
     setShowScrollBtn(dist > 350)
   }, [])
+
+  // ---------- بلند بخون (قبل از بقیه تا هیچ‌وقت TDZ پیش نیاد) ----------
+  const stopSpeaking = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current = null
+    }
+    setSpeakingId(null)
+    setSpeakingLoadingId(null)
+  }, [])
+
+  const speak = useCallback(
+    async (message: ChatMessage) => {
+      if (speakingId === message.id) {
+        stopSpeaking()
+        return
+      }
+      stopSpeaking()
+      setSpeakingLoadingId(message.id)
+      try {
+        const res = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: message.content }),
+        })
+        if (!res.ok) {
+          const data = await res.json().catch(() => null)
+          throw new Error(data?.error || 'صدا ساخته نشد!')
+        }
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        const audio = new Audio(url)
+        audioRef.current = audio
+        setSpeakingLoadingId(null)
+        setSpeakingId(message.id)
+        audio.onended = () => {
+          setSpeakingId(null)
+          URL.revokeObjectURL(url)
+        }
+        audio.onerror = () => {
+          setSpeakingId(null)
+        }
+        await audio.play()
+      } catch (err) {
+        setSpeakingLoadingId(null)
+        setSpeakingId(null)
+        toast({
+          title: 'اووپس!',
+          description: err instanceof Error ? err.message : 'صدام درنیومد!',
+          variant: 'destructive',
+        })
+      }
+    },
+    [speakingId, stopSpeaking, toast]
+  )
+  speakRef.current = speak
 
   // ---------- باز کردن یک گفتگو ----------
   const openConversation = useCallback(
@@ -210,7 +281,7 @@ export default function TekaPage() {
   // ---------- ارسال پیام ----------
   const send = useCallback(
     async (text: string) => {
-      if (sending || regenerating) return
+      if (sending || regenerating || imageBusy) return
       const content = text.trim()
       if (!content) return
 
@@ -237,6 +308,10 @@ export default function TekaPage() {
 
         if (activeIdRef.current === usedConvId) {
           setMessages((m) => [...m, data.reply])
+          // خواندن خودکار جواب اگه روشنه
+          if (autoSpeakRef.current && !data.reply?.content?.startsWith('TEKA_IMG::')) {
+            speakRef.current?.(data.reply)
+          }
         }
         setActiveId(convId)
         bumpConversation(convId, data.title)
@@ -252,12 +327,58 @@ export default function TekaPage() {
         setSending(false)
       }
     },
-    [sending, regenerating, power, bumpConversation, toast]
+    [sending, regenerating, imageBusy, power, bumpConversation, toast, stopSpeaking]
+  )
+
+  // ---------- ساخت تصویر ----------
+  const sendImage = useCallback(
+    async (prompt: string) => {
+      if (sending || regenerating || imageBusy) return
+      const content = prompt.trim()
+      if (!content) return
+
+      stopSpeaking()
+      const usedConvId = activeIdRef.current
+      const tempId = `local-img-${Date.now()}`
+
+      setMessages((m) => [...m, { id: tempId, role: 'user', content }])
+      setImageBusy(true)
+
+      try {
+        const res = await fetch('/api/image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: content, conversationId: usedConvId }),
+        })
+        const data = await res.json()
+        if (!res.ok) {
+          throw new Error(data?.error || 'تصویر ساخته نشد!')
+        }
+
+        if (activeIdRef.current === usedConvId) {
+          setMessages((m) => [...m, data.reply])
+        }
+        setActiveId(data.conversationId)
+        bumpConversation(data.conversationId, data.title)
+        toast({ title: 'اینم عکسش! 🎨', description: 'تکا نقاشی زد، خوشت اومد؟' })
+      } catch (err) {
+        setMessages((m) => m.filter((x) => x.id !== tempId))
+        setInput(content)
+        toast({
+          title: 'اووپس!',
+          description: err instanceof Error ? err.message : 'تصویرسازی قاطی شد!',
+          variant: 'destructive',
+        })
+      } finally {
+        setImageBusy(false)
+      }
+    },
+    [sending, regenerating, imageBusy, bumpConversation, toast, stopSpeaking]
   )
 
   // ---------- دوباره جواب بده ----------
   const regenerate = useCallback(async () => {
-    if (sending || regenerating || !activeIdRef.current) return
+    if (sending || regenerating || imageBusy || !activeIdRef.current) return
     stopSpeaking()
     setRegenerating(true)
     try {
@@ -291,61 +412,6 @@ export default function TekaPage() {
       setRegenerating(false)
     }
   }, [sending, regenerating, power, toast])
-
-  // ---------- بلند بخون ----------
-  const stopSpeaking = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause()
-      audioRef.current = null
-    }
-    setSpeakingId(null)
-    setSpeakingLoadingId(null)
-  }, [])
-
-  const speak = useCallback(
-    async (message: ChatMessage) => {
-      if (speakingId === message.id) {
-        stopSpeaking()
-        return
-      }
-      stopSpeaking()
-      setSpeakingLoadingId(message.id)
-      try {
-        const res = await fetch('/api/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: message.content }),
-        })
-        if (!res.ok) {
-          const data = await res.json().catch(() => null)
-          throw new Error(data?.error || 'صدا ساخته نشد!')
-        }
-        const blob = await res.blob()
-        const url = URL.createObjectURL(blob)
-        const audio = new Audio(url)
-        audioRef.current = audio
-        setSpeakingLoadingId(null)
-        setSpeakingId(message.id)
-        audio.onended = () => {
-          setSpeakingId(null)
-          URL.revokeObjectURL(url)
-        }
-        audio.onerror = () => {
-          setSpeakingId(null)
-        }
-        await audio.play()
-      } catch (err) {
-        setSpeakingLoadingId(null)
-        setSpeakingId(null)
-        toast({
-          title: 'اووپس!',
-          description: err instanceof Error ? err.message : 'صدام درنیومد!',
-          variant: 'destructive',
-        })
-      }
-    },
-    [speakingId, stopSpeaking, toast]
-  )
 
   // ---------- کپی ----------
   const copyText = useCallback(
@@ -398,15 +464,47 @@ export default function TekaPage() {
     return null
   }, [messages])
 
-  const busy = sending || regenerating
+  const busy = sending || regenerating || imageBusy
+
+  // ستاره‌های پس‌زمینه (ثابت برای جلوگیری از خطای hydration)
+  const stars = useMemo(
+    () => [
+      { top: '12%', left: '8%', size: 3, dur: '3.6s', delay: '0s' },
+      { top: '22%', left: '82%', size: 2, dur: '4.4s', delay: '0.6s' },
+      { top: '38%', left: '15%', size: 2, dur: '5s', delay: '1.2s' },
+      { top: '55%', left: '88%', size: 3, dur: '4s', delay: '0.3s' },
+      { top: '68%', left: '6%', size: 2, dur: '4.8s', delay: '1.8s' },
+      { top: '78%', left: '70%', size: 2, dur: '3.8s', delay: '0.9s' },
+      { top: '30%', left: '45%', size: 2, dur: '5.2s', delay: '2.1s' },
+      { top: '85%', left: '35%', size: 3, dur: '4.2s', delay: '1.5s' },
+      { top: '8%', left: '55%', size: 2, dur: '4.6s', delay: '2.4s' },
+      { top: '48%', left: '60%', size: 2, dur: '3.9s', delay: '0.4s' },
+    ],
+    []
+  )
 
   return (
     <div className="relative flex h-dvh w-full overflow-hidden">
-      {/* پس‌زمینهٔ aurora */}
+      {/* پس‌زمینهٔ aurora + ستاره‌ها */}
       <div className="teka-aurora" aria-hidden="true">
         <div className="teka-blob teka-blob-1" />
         <div className="teka-blob teka-blob-2" />
         <div className="teka-blob teka-blob-3" />
+        <div className="teka-blob teka-blob-4" />
+        {stars.map((s, i) => (
+          <span
+            key={i}
+            className="teka-star"
+            style={{
+              top: s.top,
+              left: s.left,
+              width: s.size,
+              height: s.size,
+              ['--dur' as string]: s.dur,
+              animationDelay: s.delay,
+            }}
+          />
+        ))}
       </div>
 
       <TekaSidebar
@@ -458,6 +556,24 @@ export default function TekaPage() {
           >
             <Zap className={`size-4 ${power ? 'fill-current' : ''}`} />
             <span className="hidden sm:inline">{power ? 'قدرتمند' : 'عادی'}</span>
+          </Button>
+
+          {/* خواندن خودکار */}
+          <Button
+            variant={autoSpeak ? 'default' : 'ghost'}
+            size="icon"
+            onClick={() => {
+              setAutoSpeak((v) => {
+                if (v) stopSpeaking()
+                return !v
+              })
+            }}
+            className={autoSpeak ? 'shadow-lg shadow-primary/30' : 'text-muted-foreground'}
+            aria-pressed={autoSpeak}
+            aria-label="خواندن خودکار جواب‌ها"
+            title="خودکار بلند بخون جواب‌هارو"
+          >
+            {mounted && autoSpeak ? <Volume2 className="size-4.5" /> : <VolumeX className="size-4.5" />}
           </Button>
 
           {/* خروجی چت */}
@@ -524,7 +640,7 @@ export default function TekaPage() {
                       speakingLoadingId={speakingLoadingId}
                     />
                   ))}
-                {busy && <TypingIndicator power={power} />}
+                {busy && <TypingIndicator power={power} painting={imageBusy} />}
               </div>
             )}
             <div ref={bottomRef} />
@@ -553,7 +669,14 @@ export default function TekaPage() {
         </main>
 
         {/* اینپوت (فوتر چسبیده به پایین) */}
-        <ChatInput value={input} onChange={setInput} onSend={send} sending={sending} power={power} />
+        <ChatInput
+          value={input}
+          onChange={setInput}
+          onSend={send}
+          onSendImage={sendImage}
+          sending={busy}
+          power={power}
+        />
       </div>
     </div>
   )
