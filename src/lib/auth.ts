@@ -88,7 +88,29 @@ export async function getUserFromRequest(req: Request): Promise<SessionUser | nu
 
     // توکن جدید → کاربر کامل از خود توکن (بدون دیتابیس — stateless)
     if (data.name && data.email) {
-      return { id: data.sub, name: data.name, email: data.email, image: data.image ?? null }
+      const sessionUser: SessionUser = {
+        id: data.sub,
+        name: data.name,
+        email: data.email,
+        image: data.image ?? null,
+      }
+      // سرورلس (ورسل): هر اینستنس /tmp جدای داره — رکورد کاربر رو همین‌جا
+      // تضمین می‌کنیم تا ساخت گفتگو/پیام خطای FK نخوره
+      try {
+        await db.user.upsert({
+          where: { id: sessionUser.id },
+          update: {},
+          create: {
+            id: sessionUser.id,
+            email: sessionUser.email,
+            name: sessionUser.name,
+            image: sessionUser.image,
+          },
+        })
+      } catch {
+        /* دیتابیس نبود؟ عملیات بعدی خودش ارور واضح می‌ده */
+      }
+      return sessionUser
     }
 
     // عقب‌گرد: توکن‌های قدیمی (فقط sub) → دیتابیس
