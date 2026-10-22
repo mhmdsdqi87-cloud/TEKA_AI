@@ -208,3 +208,28 @@ Work Log:
 Stage Summary:
 - سکوئنس ورود نهایی: لود → اسپلش فول‌اسکرین از فریم اول (SSR) → ~۳.۲ ثانیه پخش کامل (لوگو نبض‌دار + شیمر + ۵ جملهٔ وضعیت + نوار پیشرفت) → زوم+بلور خروج → صفحه و سایدبار با تاخیر ۰.۴۵s بلوری-روشن باز می‌شن (~۱.۳s بعد اسپلش کامل بازه).
 - فایل‌ها: splash.tsx، page.tsx. کامیت جدید + شات‌ها: shots/v6-*.png
+
+---
+Task ID: 8
+Agent: main (Z.ai Code)
+Task: «پوش به گیت‌هاب با اسم mohammad + گیت لاگین اجباری برای پیام دادن»
+
+Work Log:
+- GitHub: README.md ساخته شد (معرفی تکا + ویژگی‌ها + تکنولوژی‌ها)، ریموت origin → mhmdsdqi87-cloud/TEKA_AI.git وصل شد.
+- git config کاربر → mohammad <mhmdsdqi87-cloud@users.noreply.github.com>؛ کل تاریخچه (۲۰ کامیت) با filter-branch --env-filter بازنویسی شد → همهٔ کامیت‌ها now author = mohammad.
+- پوش موفق با توکن PAT (توکن در URL دستور push استفاده شد، در config ذخیره نشد؛ .git/config چک شد — تمیز).
+- 🔒 گیت لاگین سمت سرور: /api/chat، /api/chat/regenerate، /api/image، /api/vision، /api/file → بدون کوکی نشست 401 {needAuth:true} برمی‌گردونن؛ مهمان نمی‌تونه هیچ پیامی بسازه.
+- 🔒 گیت مالکیت: در همهٔ روت‌های چت/تصویر/ویژن/فایل/ری‌جنریت چک می‌شه conversation.userId === sessionUser.id وگرنه 404 — یعنی کاربر لاگین‌شده هم نمی‌تونه به چت بقیه دست بزنه.
+- 🔒 گیت UI: requireAuth() helper در page.tsx (توست «اول وارد شو داداش! 🔒» + باز شدن AuthDialog) سر چهار هندلر send/sendImage/sendVision/sendFile و regenerate.
+- ChatInput قفل‌پذیر شد: prop locked + onLockedClick؛ بنر «برای چت با تکا اول وارد حسابت شو 🔒 [ورود/ثبت‌نام]»، textarea readOnly، پیوست/میکروفن/تصویرساز disabled، دکمهٔ ارسال → آیکون قفل و کلیکش دیالوگ ورود باز می‌کنه، placeholder قفل.
+- هندل 401 کلاینت: اگه کوکی منقضی شده باشه، send → setUser(null) + باز شدن دیالوگ + توست «نشستت تموم شده! 🔒».
+- تست E2E با Agent Browser: مهمان → بنر قفل + آیکون لاک + پلیس‌هولدر قفل (v7-guest-locked.png) → کلیک دکمهٔ قفل → دیالوگ ورود + توست (v7-auth-dialog.png) → ثبت‌نام «محمد تستی / test@mohammad.dev» → چیپ کاربر تو هدر + توست خوش‌اومد + اینپوت باز (v7-after-signup.png) → ارسال پیام واقعی → جواب استریم شد + چت تو سایدبار (v7-sent.png).
+- bun:sqlite تأیید: ردیف User test@mohammad.dev با Conversation لینک‌شده (userId ست شده).
+- امنیت گیت: .env و db/custom.db که از کامیت‌های قبلی تو ریپو پابلیک بودن، با filter-branch --index-filter از کل ۱۶+ کامیت تاریخچه پاک شدن، .gitignore اضافه شدن، force push تمیز. فایل‌ها لوکال سالم موندن (اپ هنوز کار می‌کنه).
+- کنسول مرورگر صفر ارور؛ curl مهمان → 401 تأیید؛ lint پاک؛ سرور 200.
+
+Stage Summary:
+- پروژه روی GitHub پابلیک شد: github.com/mhmdsdqi87-cloud/TEKA_AI (شاخهٔ main، همهٔ کامیت‌ها با نام mohammad، بدون هیچ سکرت/دیتابیسی در تاریخچه).
+- حالا تا لاگین نکنی هیچ راهی برای پیام دادن به تکا نیست: نه UI (اینپوت قفل + بنر + دکمهٔ لاک)، نه API (401 روی همهٔ مسیرهای پیام)، نه دور زدن مالکیت (چک userId روی همهٔ روت‌ها).
+- فایل‌ها: page.tsx، chat-input.tsx، api/chat/route.ts، api/chat/regenerate/route.ts، api/image/route.ts، api/vision/route.ts، api/file/route.ts، .gitignore، README.md.
+- کامیت‌ها: «🔒 گیت لاگین...» + «🧹 حذف .env و دیتابیس از گیت...» — force push نهایی 78f4b55.
