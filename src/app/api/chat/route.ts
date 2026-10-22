@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import ZAI from 'z-ai-web-dev-sdk'
 import { db } from '@/lib/db'
 import {
   buildMemoryText,
@@ -9,21 +8,14 @@ import {
   TEKA_CREATOR,
   TEKA_NAME,
 } from '@/lib/teka'
-
-let zaiInstance: Awaited<ReturnType<typeof ZAI.create>> | null = null
-
-async function getZai() {
-  if (!zaiInstance) {
-    zaiInstance = await ZAI.create()
-  }
-  return zaiInstance
-}
+import { callLlm } from '@/lib/llm'
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => null)
     const message: unknown = body?.message
     const conversationId: unknown = body?.conversationId
+    const power: boolean = body?.power === true
 
     if (typeof message !== 'string' || message.trim().length === 0) {
       return NextResponse.json(
@@ -63,38 +55,15 @@ export async function POST(req: NextRequest) {
       buildMemoryText(conversation.id),
     ])
 
-    const systemPrompt = buildSystemPrompt(memoryText, conversation.title)
+    const systemPrompt = buildSystemPrompt(memoryText, conversation.title, power)
 
     // ۴) صدا زدن مدل
-    const zai = await getZai()
-    let reply = ''
-    let lastError: unknown = null
-
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        const completion = await zai.chat.completions.create({
-          messages: [
-            { role: 'assistant', content: systemPrompt },
-            ...history,
-          ],
-          thinking: { type: 'disabled' },
-        })
-        const content = completion.choices[0]?.message?.content
-        if (content && content.trim()) {
-          reply = content.trim()
-          break
-        }
-        throw new Error('empty response')
-      } catch (err) {
-        lastError = err
-        if (attempt < 3) {
-          await new Promise((r) => setTimeout(r, 800 * attempt))
-        }
-      }
-    }
+    const reply = await callLlm(
+      [{ role: 'assistant', content: systemPrompt }, ...history],
+      power
+    )
 
     if (!reply) {
-      console.error('[api/chat] LLM failed:', lastError)
       return NextResponse.json(
         {
           error: `اووپس، یه چیزی قاطی شد! الان مغزم یه کم گرمه 🙈 دوباره بفرست پیامت رو. (${TEKA_NAME} - ساختهٔ ${TEKA_CREATOR})`,
