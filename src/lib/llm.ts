@@ -12,8 +12,17 @@ export async function getZai() {
 
 type LlmMsg = { role: string; content: string }
 
-/** صدا زدن مدل با retry خودکار؛ جواب پاکسازی‌شده برمی‌گردونه یا null */
-export async function callLlm(messages: LlmMsg[], power = false): Promise<string | null> {
+/**
+ * صدا زدن مدل با retry خودکار؛ جواب پاکسازی‌شده برمی‌گردونه یا null.
+ * ⚠️ از اکتبر: حالت تفکر (thinking) به‌صورت پیش‌فرض روشنه تا دقت جواب‌ها
+ * خیلی بالاتر بره و تکا کمتر اشتباه کنه. برای کارهای سبک (مثل بازنویسی
+ * پرامپت تصویر) می‌تونیم با think=false سریع‌ترش کنیم.
+ */
+export async function callLlm(
+  messages: LlmMsg[],
+  power = false,
+  think = true
+): Promise<string | null> {
   const zai = await getZai()
   let lastError: unknown = null
 
@@ -21,7 +30,7 @@ export async function callLlm(messages: LlmMsg[], power = false): Promise<string
     try {
       const completion = await zai.chat.completions.create({
         messages: messages as never,
-        thinking: { type: power ? 'enabled' : 'disabled' },
+        thinking: { type: think || power ? 'enabled' : 'disabled' },
       })
       const content = completion.choices[0]?.message?.content
       if (content && content.trim()) {

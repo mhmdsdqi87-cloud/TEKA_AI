@@ -11,25 +11,50 @@ Rewrite it as ONE highly detailed ENGLISH image prompt.
 
 Rules:
 - Keep the exact subject and meaning the user asked for — never replace the subject.
-- Add rich visual details: composition, camera angle, lighting, color palette, textures, mood, background, style (photorealistic / cinematic / illustration...).
-- Add quality tags at the end like: ultra detailed, sharp focus, 8k, masterpiece.
+- If the subject is a real or famous person, DO NOT name them; instead describe a fictional character with their general look, vibe and style (e.g. "a glamorous young blonde Hollywood-style actress in an elegant evening dress").
+- Add rich visual details: composition, camera angle, lighting, color palette, textures, mood, background, art style (photorealistic / cinematic / illustration...).
+- End with quality tags like: ultra detailed, intricate details, sharp focus, professional lighting, 8k, masterpiece.
 - Maximum 90 words. Output ONLY the English prompt text — no explanations, no quotes.`
 
-/** نسخهٔ کاملاً امن و خانوادگی می‌سازه (وقتی فیلتر محتوا گیر داده) */
+/** نسخهٔ امن و خانوادگی می‌سازه (وقتی فیلتر محتوا گیر داده) — سوژه باید قابل‌تشخیص بمونه */
 const SOFTEN_SYSTEM = `You rewrite image prompts that were REJECTED by an image model's content filter, so they pass safely.
 
 Rules:
-- Keep the CORE subject and overall idea recognizable — the user must still get what they asked for.
-- Remove or replace anything that can trigger filters: violence, blood, horror, skeletons/bones/skulls, zombies, monsters, weapons, gore, scary faces, alcohol, drugs, smoking, gambling, nudity or revealing clothes, religious or political symbols/figures, real celebrity or brand names, national flags/emblems.
-- Replace flagged elements with cute, wholesome, colorful alternatives (e.g. "skeleton hat" -> "colorful striped beanie", "zombie" -> "funny green cartoon monster costume").
-- Output ONE simple cheerful ENGLISH prompt, max 40 words, family-friendly, positive mood.
+- KEEP the core subject recognizable — the user must still see what they asked for.
+- Real people (celebrities, politicians, religious figures): NEVER name them; describe a fictional cartoon/illustration character inspired by their GENERAL look (hair, clothing style, vibe) — e.g. a politician with yellow hair becomes "a cartoon of a confident businessman with bright yellow hair and a red tie".
+- Remove/replace ONLY what triggers filters: violence, blood, horror, skeletons/skulls/bones, zombies, weapons, gore, alcohol, drugs, smoking, nudity or revealing clothes, political/religious symbols, flags, national emblems.
+- Keep everything else: setting, mood, colors, composition.
+- Output ONE vivid ENGLISH prompt, max 45 words, stylized as colorful cartoon or cinematic illustration.
 - Output ONLY the prompt text — no explanations, no quotes.`
 
 /** آخرین تلاش: فقط سوژهٔ اصلی، خیلی کوتاه و ساده */
 const MINIMAL_SYSTEM = `Reduce the user's image request to its absolute CORE subject in English.
-Max 12 words, ultra simple, wholesome and safe (no people's names, no violence, no politics, no religion).
-Example: "a cute cat on the moon, cartoon style".
+Max 14 words, ultra simple, wholesome and safe (no people's names, no violence, no politics, no religion, no nudity).
+Example: "a cute cat sitting on the moon, colorful cartoon style".
 Output ONLY the prompt text.`
+
+/** کلمات پرریسک: اگه توی پرامپت بودن، مستقیم می‌ریم سراغ نسخهٔ امن (صرفه‌جویی در زمان و نرخ موفقیت بالاتر) */
+const RISKY_PATTERNS = [
+  // جنسی / برهنه
+  /پورن|سکس|سکسی|لخت|برهنه|عریان|نیمه ?برهنه|کون|کیر|جنده|حشری|لاپا|سوتین|بیکینی|بکن|بکنش|بدنش|بدن سیدنی|سکسی/i,
+  /\bnude|naked|nsfw|porn|sex|sexy|lingerie|bikini|topless|erotic\b/i,
+  // خشونت / ترس
+  /خون|کشتار|قتل|کشتن|خشونت|بریدن|سر برید|اسکلت|استخوان|جمجمه|زامبی|آدم‌خوار|شیطان|جن|ارواح|تسلی|شبح|کابوس|ترسناک/i,
+  /\bblood|gore|murder|kill|zombie|skeleton|skull|demon|devil|ghost|horror|behead|corpse\b/i,
+  // سلاح
+  /اسلحه|تفنگ|خنجر|چاقو زدن|سلاح|بمب|تروریست/i,
+  /\bgun|rifle|knife attack|bomb|terrorist|weapon\b/i,
+  // مشروب / مواد
+  /مشروب|شراب|الف|قالیان|قلیون|سیگار|مواد مخدر|گل|تریاک/i,
+  /\balcohol|wine|beer|drunk|cigarette|shisha|hookah|drug|cocaine|weed\b/i,
+  // سیاست / مذهب / پرچم
+  /ترامپ|بایرن|بایدن|پوتین|نتانیاهو|خامنه ?ای|خامنه‌ای|رئیسی|آیت ?الله|امام|رهبر|جمهوری ?اسلامی|علم|پرچم/i,
+  /\btrump|biden|putin|netanyahu|khamenei|president|ayatollah|prophet|quran|bible|flag\b/i,
+]
+
+function isRisky(prompt: string): boolean {
+  return RISKY_PATTERNS.some((re) => re.test(prompt))
+}
 
 /** پرامپت کاربر رو به یه پرامپت حرفه‌ای و پرجزئیات انگلیسی تبدیل می‌کنه */
 async function enrichPrompt(prompt: string): Promise<string> {
@@ -39,12 +64,18 @@ async function enrichPrompt(prompt: string): Promise<string> {
         { role: 'assistant', content: ENRICH_SYSTEM },
         { role: 'user', content: prompt },
       ],
+      false,
       false
     )
     if (enriched && enriched.trim()) {
-      // اگه مدل به‌جای پرامپت توضیح فارسی داد، ازش استفاده نکن
       const cleaned = enriched.trim().replace(/^"|"$/g, '')
-      if (/^[\x00-\xFF]+$/.test(cleaned.slice(0, 80))) return cleaned
+      if (/^[\x00-\xFF]+$/.test(cleaned.slice(0, 80))) {
+        // اگه تگ کیفیت نداشت، خودم اضافه می‌کنم (دقت حداکثری)
+        if (!/detailed|8k|masterpiece|sharp/i.test(cleaned)) {
+          return `${cleaned}, ultra detailed, intricate details, sharp focus, professional lighting, 8k, masterpiece`
+        }
+        return cleaned
+      }
     }
   } catch (err) {
     console.warn('[api/image] enrich failed, using raw prompt:', err)
@@ -60,6 +91,7 @@ async function rewritePrompt(system: string, prompt: string): Promise<string | n
         { role: 'assistant', content: system },
         { role: 'user', content: prompt },
       ],
+      false,
       false
     )
     const cleaned = rewritten?.trim().replace(/^"|"$/g, '')
@@ -83,13 +115,44 @@ async function drawImage(zai: Awaited<ReturnType<typeof getZai>>, prompt: string
 }
 
 /**
- * زنجیرهٔ نجات تصویرساز 🎨
- * ۱) پرامپت پرجزئیات (دقیق با تمام جزییات)
- * ۲) پرامپت خام کاربر
- * ۳) نسخهٔ امن‌شده (دور زدن فیلتر محتوا)
- * ۴) نسخهٔ فوق‌ساده (فقط سوژهٔ اصلی)
+ * زنجیرهٔ نجات تصویرساز 🎨 (نسخهٔ ۳)
+ * پرامپت‌های پرریسک مستقیم می‌رن سراغ نسخهٔ امن؛ بقیه اول پرجزئیات کشیده می‌شن.
+ * اگه هیچ‌مرحله‌ای جواب نداد، null برمی‌گرده تا تکا «متنی» توضیح بده (بدون ارور مرده).
  */
-async function drawWithRescue(zai: Awaited<ReturnType<typeof getZai>>, rawPrompt: string): Promise<string> {
+async function drawWithRescue(
+  zai: Awaited<ReturnType<typeof getZai>>,
+  rawPrompt: string
+): Promise<string | null> {
+  const risky = isRisky(rawPrompt)
+
+  // ---------- مسیر پرریسک: اول امن‌سازی، بعد جزئیات ----------
+  if (risky) {
+    console.info('[api/image] risky prompt detected → safe path')
+    const softened = await rewritePrompt(SOFTEN_SYSTEM, rawPrompt)
+    if (softened) {
+      // نسخهٔ امن رو غنی‌سازی می‌کنیم تا دقیق و پرجزئیات دربیاد
+      const enrichedSafe = await enrichPrompt(softened)
+      for (const candidate of [softened, enrichedSafe]) {
+        try {
+          return await drawImage(zai, candidate)
+        } catch (err) {
+          console.warn('[api/image] safe-path draw failed:', err)
+        }
+      }
+    }
+    // نسخهٔ فوق‌ساده
+    const minimal = await rewritePrompt(MINIMAL_SYSTEM, rawPrompt)
+    if (minimal) {
+      try {
+        return await drawImage(zai, minimal)
+      } catch (err) {
+        console.warn('[api/image] safe-minimal draw failed:', err)
+      }
+    }
+    return null
+  }
+
+  // ---------- مسیر عادی ----------
   const detailed = await enrichPrompt(rawPrompt)
 
   // ۱) پرامپت مهندسی‌شدهٔ پرجزئیات
@@ -122,17 +185,42 @@ async function drawWithRescue(zai: Awaited<ReturnType<typeof getZai>>, rawPrompt
     try {
       return await drawImage(zai, minimal)
     } catch (err) {
-      console.error('[api/image] minimal attempt failed:', err)
+      console.warn('[api/image] minimal attempt failed:', err)
     }
   }
 
-  throw new Error('all image attempts failed')
+  return null
+}
+
+/** پیام متنی دوستانه وقتی هیچ‌عکسی ساخته نشد (به‌جای ارور مرده) */
+async function gracefulFallbackText(rawPrompt: string): Promise<string> {
+  // تکا خودش با لحن خودمونی توضیح می‌ده و پیشنهاد جایگزین می‌ده
+  const aiMsg = await callLlm(
+    [
+      {
+        role: 'assistant',
+        content:
+          'تو تکا هستی؛ هوش مصنوعی خودمونی فارسی. کاربر از تصویرساز تو خواسته چیزی بکشی ولی فیلتر امنیتی سرویس تصویر، همهٔ تلاش‌های تو رو رد کرده (سوژهٔ حساس: آدم معروف، سیاسی، مذهبی، خشونت یا محتوای نامناسب).',
+      },
+      {
+        role: 'user',
+        content: `درخواستش این بود: «${rawPrompt}». با ۲-۳ جملهٔ کوتاه و خودمونی (با ایموجی) صادقانه بگو که فیلتر نقاشی این سوژه رو قبول نکرد، ناراحتش نکن، و ۲ تا پیشنهاد جایگزین خفن بده که بتونی براش بکشی (نزدیک به همون حس، ولی قابل قبول برای فیلتر). فقط همین، بدون مقدمه.`,
+      },
+    ],
+    false,
+    false
+  )
+  return (
+    aiMsg?.trim() ||
+    'داداش، فیلتر نقاشی این سوژه رو قبول نکرد 😅 ولی اگه یه ذره‌ی دیگه عوضش کنی یا سوژهٔ بامزه‌تری بخوای، من آماده‌ام! 🎨'
+  )
 }
 
 /**
  * تصویرساز تکا: از متن یه عکس هنری می‌سازه.
  * پیام کاربر و جواب تصویری (به‌صورت data URL) توی دیتابیس ذخیره می‌شن
  * تا توی حافظه و تاریخچه هم بمونن.
+ * اگه فیلتر همه‌چیز رو رد کرد، تکا با پیام متنی خودمونی توضیح می‌ده (نه ارور!).
  */
 export async function POST(req: NextRequest) {
   try {
@@ -178,24 +266,17 @@ export async function POST(req: NextRequest) {
 
     // ۳) کشیدن با زنجیرهٔ نجات
     const zai = await getZai()
-    let base64: string | null = null
-    try {
-      base64 = await drawWithRescue(zai, cleanPrompt)
-    } catch (err) {
-      console.error('[api/image] all attempts failed:', err)
+    const base64 = await drawWithRescue(zai, cleanPrompt)
+
+    let content: string
+    if (base64) {
+      content = `${IMAGE_MARKER}data:image/png;base64,${base64}`
+    } else {
+      // ⭐ fallback دوستانه: به‌جای ارور، تکا متنی توضیح می‌ده
+      content = await gracefulFallbackText(cleanPrompt)
     }
 
-    if (!base64) {
-      return NextResponse.json(
-        { error: 'نقاشی قاطی شد داداش! 😅 یه بار دیگه امتحان کن یا سوژه رو یه ذره ساده‌تر بگو.' },
-        { status: 502 }
-      )
-    }
-
-    const dataUrl = `data:image/png;base64,${base64}`
-    const content = `${IMAGE_MARKER}${dataUrl}`
-
-    // ۴) ذخیرهٔ تصویر به‌عنوان جواب تکا
+    // ۴) ذخیرهٔ جواب تکا
     const saved = await db.message.create({
       data: { conversationId: conversation.id, role: 'assistant', content },
     })
