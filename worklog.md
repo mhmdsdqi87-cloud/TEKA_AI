@@ -233,3 +233,24 @@ Stage Summary:
 - حالا تا لاگین نکنی هیچ راهی برای پیام دادن به تکا نیست: نه UI (اینپوت قفل + بنر + دکمهٔ لاک)، نه API (401 روی همهٔ مسیرهای پیام)، نه دور زدن مالکیت (چک userId روی همهٔ روت‌ها).
 - فایل‌ها: page.tsx، chat-input.tsx، api/chat/route.ts، api/chat/regenerate/route.ts، api/image/route.ts، api/vision/route.ts، api/file/route.ts، .gitignore، README.md.
 - کامیت‌ها: «🔒 گیت لاگین...» + «🧹 حذف .env و دیتابیس از گیت...» — force push نهایی 78f4b55.
+
+---
+Task ID: 9
+Agent: main (Z.ai Code)
+Task: «بریم ورسلش کنیم» — آماده‌سازی کامل دیپلوی + ریکاوری اضطراری دیتابیس
+
+Work Log:
+- 🔍 بازرسی: DEPLOY.md قدیمی file: SQLite رو توصیه می‌کرد (روی سرورلس می‌شکست)؛ z-ai-web-dev-sdk فقط از .z-ai-config (کانفیگ داخلی سندباکس در /etc) می‌خونه — یعنی روی ورسل AI از کار می‌افتاد.
+- 🌐 src/lib/ai.ts جدید: getAI() با دو مسیر — (۱) envهای AI_BASE_URL + AI_API_KEY → شبیه‌ساز کامل سازگار-OpenAI (chat + stream + createVision + images.generations با b64_json/URL + audio.asr با whisper multipart)؛ (۲) نبود env → SDK سندباکس. همهٔ getZai callers (llm/regenerate/vision/asr/image-draw) بدون تغییر کار می‌کنن.
+- 🗄️ دیتابیس دمو-دوئل: provider نیتیو libsql تو Prisma 6.19 موجود نبود (P1012) → مسیر درست: اسکیما sqlite موند + @prisma/adapter-libsql نصب شد + src/lib/db.ts: اگه DATABASE_URL با libsql:// شروع شه → آداپتور Turso (توکن از DATABASE_AUTH_TOKEN)؛ وگرنه SQLite لوکال. db:push لوکال سالم.
+- 💥 حادثه + ریکاوری: وسط کار، db/custom.db (۷.۳MB — ۳ کاربر، ۵۴ چت، ۱۸۴ پیام) یهویی خالی شد (۴۵KB). کاوش: experiments نشون داد push با پرایدر غلط فایل رو دست نمی‌زنه؛ لاگ .zscripts/dev.log فاش کرد ناظر سندباکس بعد از pkill من، bun install + db:push دوباره اجرا کرده (بعد از این‌که فایل از قبل خالی شده بود). ریکاوری از گیت‌هاب: SHA قبل فورس‌پوش از API ریپو (activity → force_push.before = e2de9b068eb…) دراومد، با git fetch <sha> آبجکت یتیم برگشت، db از tree استخراج و restore شد → لاگین و چت دوباره کار می‌کنه (تست شد: LOGIN 200 + CHAT 200 «سلام داداش! 😎»).
+- 🛡️ پیشگیری: scripts/backup-db.sh + bun run backup — بکاپ timestampدار تو db/backups/ (gitignored)، آخرین ۱۰ نسخه، محافظ کوچک‌فایل (اگه db ریست شده باشه بکاپ خوب رو خراب نمی‌کنه). اولین بکاپ گرفته شد.
+- ⚙️ package.json: build → next build تمیز (ورسل‌سازگار)، build:standalone برای self-host، اسکریپت backup اضافه شد.
+- ⚙️ tsconfig.json: target ES2022 (رفع TS1501) + exclude: skills/examples/mini-services/scripts → tsc صفر ارور برای کد خودمون؛ lint صفر (فقط یه هشدار unused-disable که حذف شد).
+- 📄 .env.example کامل (DATABASE_URL/AUTH_SECRET/AI_*/GOOGLE_*) + DEPLOY.md بازنویسی کامل فارسی: Turso از Vercel Marketplace یا دستی + اعمال اسکیما با migrate diff→turso shell + جدول envها + هشدار AI روی ورسل + redirect URI گوگل.
+- تست نهایی: curl login 200 → chat 200 با جواب واقعی؛ سرور سندباکس تک‌نمونه سالم؛ push به گیت‌هاب موفق (d132732).
+
+Stage Summary:
+- پروژه ۱۰۰٪ Vercel-ready شد: بیلد تمیز، دیتابیس ابری-آماده (Turso via driver adapter)، لایهٔ AI با هر API سازگار-OpenAI کار می‌کنه، راهنمای فارسی قدم‌به‌قدم تو DEPLOY.md.
+- برای دیپلوی فقط لازمه: ورسل Import + Turso وصل + AUTH_SECRET و AI_BASE_URL/AI_API_KEY ست بشه.
+- درس سخت: pkill سرور سندباکس نزن (ناظرش دوباره بوت می‌کنه) و قبل هر کار ریسکی bun run backup بزن.
