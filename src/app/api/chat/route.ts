@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getUserFromRequest } from '@/lib/auth'
 import {
   buildMemoryText,
   buildSystemPrompt,
   loadHistory,
   makeTitle,
+  parseMood,
   sanitizeInput,
   TEKA_CREATOR,
   TEKA_NAME,
@@ -39,6 +41,9 @@ export async function POST(req: NextRequest) {
 
     const cleanMessage = sanitizeInput(message.trim())
 
+    const user = await getUserFromRequest(req)
+    const mood = parseMood(body?.mood)
+
     // ۱) پیدا کردن یا ساختن گفتگو
     let conversation =
       typeof conversationId === 'string' && conversationId
@@ -47,7 +52,7 @@ export async function POST(req: NextRequest) {
 
     if (!conversation) {
       conversation = await db.conversation.create({
-        data: { title: makeTitle(cleanMessage) },
+        data: { title: makeTitle(cleanMessage), userId: user?.id ?? null },
       })
     }
 
@@ -74,7 +79,7 @@ export async function POST(req: NextRequest) {
       buildMemoryText(conversation.id),
     ])
 
-    const systemPrompt = buildSystemPrompt(memoryText, conversation.title, power)
+    const systemPrompt = buildSystemPrompt(memoryText, conversation.title, power, mood)
 
     // ۵) صدا زدن مدل
     const reply = await callLlm(

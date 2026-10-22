@@ -5,8 +5,11 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useTheme } from 'next-themes'
 import {
   ArrowDown,
+  ChevronDown,
   Download,
   Loader2,
+  LogIn,
+  LogOut,
   Menu,
   Moon,
   Sun,
@@ -15,6 +18,14 @@ import {
   Zap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { useToast } from '@/hooks/use-toast'
 import { TekaSidebar } from '@/components/chat/sidebar'
 import { ChatInput } from '@/components/chat/chat-input'
@@ -24,12 +35,50 @@ import {
   PaintingPlaceholder,
   TypingIndicator,
 } from '@/components/chat/message-list'
+import { AuthDialog, type TekaUser } from '@/components/chat/auth-dialog'
+import {
+  AchievementsChip,
+  LevelUpOverlay,
+  QuestsChip,
+  StreakChip,
+} from '@/components/chat/gamification'
+import { ConfettiBurst } from '@/components/chat/confetti'
+import {
+  addBonusXp,
+  loadBonusXp,
+  loadMood,
+  loadQuests,
+  loadSeenLevel,
+  recordActivity,
+  saveMood,
+  saveSeenLevel,
+  updateStreakOnVisit,
+  type Quest,
+  type QuestEvent,
+  type TekaMoodClient,
+} from '@/lib/game'
 import type { ChatMessage, ConversationSummary } from '@/components/chat/types'
 import type { PendingFile } from '@/components/chat/chat-input'
 
 /* مارکرهای محتوا (باید با بک‌اند سینک باشه؛ teka.ts سمت سروره و اینجا ایمپورت نمی‌شه) */
 const MARKER_UIMG = 'TEKA_UIMG::'
 const MARKER_FILE = 'TEKA_FILE::'
+
+/* حالت‌های تکا 🎭 (کپی کلاینتی — teka.ts سمت سروره) */
+const MOOD_OPTIONS: { id: TekaMoodClient; label: string; emoji: string; desc: string }[] = [
+  { id: 'normal', label: 'تکای عادی', emoji: '😎', desc: 'همون رفیق همیشگی' },
+  { id: 'playful', label: 'شیطون', emoji: '😈', desc: 'شوخی و تیکهٔ بامزه' },
+  { id: 'master', label: 'استاد', emoji: '🎓', desc: 'عمیق و ساختارمند' },
+  { id: 'poet', label: 'شاعر', emoji: '☕', desc: 'لطیف و تصویری' },
+]
+
+function rankFor(level: number): string {
+  if (level >= 15) return 'افسانه‌ای 🔥'
+  if (level >= 10) return 'استار ⚡'
+  if (level >= 5) return 'حرفه‌ای 😎'
+  if (level >= 3) return 'رفیق باحال 🙌'
+  return 'تازه‌کار خفن 🌱'
+}
 
 export default function TekaPage() {
   const { toast } = useToast()
@@ -54,14 +103,31 @@ export default function TekaPage() {
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const [awaitingArt, setAwaitingArt] = useState(false) // منتظر عکسِ در حال ساخت تو چت عادی
 
+  // 🔐 حساب کاربری
+  const [user, setUser] = useState<TekaUser | null>(null)
+  const [authOpen, setAuthOpen] = useState(false)
+
+  // 🎮 گیمیفیکیشن
+  const [streakCount, setStreakCount] = useState(0)
+  const [quests, setQuests] = useState<Quest[]>([])
+  const [bonusXp, setBonusXp] = useState(0)
+  const [confettiTrigger, setConfettiTrigger] = useState(0)
+  const [levelUp, setLevelUp] = useState<{ level: number; rank: string } | null>(null)
+  const [mood, setMood] = useState<TekaMoodClient>('normal')
+
   const bottomRef = useRef<HTMLDivElement>(null)
   const mainRef = useRef<HTMLElement>(null)
+  const auroraRef = useRef<HTMLDivElement>(null)
   const activeIdRef = useRef<string | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const speakRef = useRef<(m: ChatMessage) => void>(() => undefined)
   const autoSpeakRef = useRef(false)
+  const streakRef = useRef(0)
+  const moodRef = useRef<TekaMoodClient>('normal')
   activeIdRef.current = activeId
   autoSpeakRef.current = autoSpeak
+  streakRef.current = streakCount
+  moodRef.current = mood
 
   // ---------- mount ----------
   useEffect(() => {
@@ -73,7 +139,51 @@ export default function TekaPage() {
     } catch {
       /* noop */
     }
-  }, [])
+
+    // 🎮 استریک و ماموریت‌ها و حالت
+    const streak = updateStreakOnVisit()
+    setStreakCount(streak.count)
+    if (streak.isNewDay && streak.count > 1) {
+      toast({
+        title: `استریک ${new Intl.NumberFormat('fa-IR').format(streak.count)} روزه! 🔥`,
+        description: 'داداش تو آتیشی! ادامه بده که نشکنه.',
+      })
+    }
+    setQuests(loadQuests())
+    setBonusXp(loadBonusXp())
+    const m = loadMood()
+    setMood(m)
+    moodRef.current = m
+
+    // 🔐 کاربر فعلی + پیام‌های برگشت از گوگل
+    ;(async () => {
+      try {
+        const params = new URLSearchParams(window.location.search)
+        const authError = params.get('authError')
+        const welcome = params.get('welcome')
+        if (authError) {
+          toast({
+            title: 'ورود گوگل هنوز فعال نشد! 🔑',
+            description: 'کلیدهای گوگل ست نشده؛ فعلاً با ایمیل وارد شو داداش.',
+            variant: 'destructive',
+          })
+        }
+        if (welcome) {
+          toast({
+            title: `خوش اومدی ${decodeURIComponent(welcome)}! 🎉`,
+            description: 'با گوگل وصل شدی؛ همه‌چیز آماده‌ست!',
+          })
+        }
+        if (authError || welcome) window.history.replaceState({}, '', '/')
+
+        const res = await fetch('/api/auth/me', { cache: 'no-store' })
+        const data = await res.json().catch(() => null)
+        if (res.ok && data?.user) setUser(data.user)
+      } catch {
+        /* مهمان می‌مونه */
+      }
+    })()
+  }, [toast])
 
   useEffect(() => {
     try {
@@ -90,6 +200,43 @@ export default function TekaPage() {
       /* noop */
     }
   }, [autoSpeak])
+
+  // 🖱️ هالهٔ دنبال‌کنندهٔ موس
+  useEffect(() => {
+    const el = auroraRef.current
+    if (!el) return
+    let raf = 0
+    const onMove = (e: PointerEvent) => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        el.style.setProperty('--mx', `${((e.clientX / window.innerWidth) * 100).toFixed(2)}%`)
+        el.style.setProperty('--my', `${((e.clientY / window.innerHeight) * 100).toFixed(2)}%`)
+        raf = 0
+      })
+    }
+    window.addEventListener('pointermove', onMove, { passive: true })
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      if (raf) cancelAnimationFrame(raf)
+    }
+  }, [])
+
+  // 🎉 پایش لول‌آپ
+  useEffect(() => {
+    const total =
+      conversations.reduce((s, c) => s + (c.messageCount ?? 0), 0) + bonusXp
+    const lvl = Math.floor(total / 10) + 1
+    const seen = loadSeenLevel()
+    if (seen === 0) {
+      saveSeenLevel(lvl)
+      return
+    }
+    if (lvl > seen) {
+      saveSeenLevel(lvl)
+      setLevelUp({ level: lvl, rank: rankFor(lvl) })
+      setConfettiTrigger((v) => v + 1)
+    }
+  }, [conversations, bonusXp])
 
   // ---------- لیست گفتگوها ----------
   const loadConversations = useCallback(async () => {
@@ -205,6 +352,76 @@ export default function TekaPage() {
     [speakingId, stopSpeaking, toast]
   )
   speakRef.current = speak
+
+  // 🎮 ثبت فعالیت (ماموریت + دستاورد + XP)
+  const trackEvent = useCallback(
+    (event: QuestEvent) => {
+      const result = recordActivity(event, streakRef.current)
+      setQuests(result.quests)
+      if (result.completed.length > 0) {
+        for (const q of result.completed) {
+          setBonusXp((prev) => {
+            const next = addBonusXp(q.reward)
+            return next
+          })
+          toast({
+            title: `ماموریت کامل شد! ${q.icon}`,
+            description: `${q.label} — ${new Intl.NumberFormat('fa-IR').format(q.reward)} XP گرفتی! ⚡`,
+          })
+        }
+        setConfettiTrigger((v) => v + 1)
+      }
+      for (const a of result.unlocked) {
+        toast({
+          title: `دستاورد باز شد! ${a.icon}`,
+          description: `${a.title} — ${a.desc}`,
+        })
+      }
+      if (result.unlocked.length > 0) setConfettiTrigger((v) => v + 1)
+    },
+    [toast]
+  )
+
+  // 🎭 تغییر حالت تکا
+  const selectMood = useCallback(
+    (m: TekaMoodClient) => {
+      setMood(m)
+      moodRef.current = m
+      saveMood(m)
+      const opt = MOOD_OPTIONS.find((o) => o.id === m)
+      if (m !== 'normal') trackEvent('mood')
+      toast({
+        title: `${opt?.emoji} فاز تکا عوض شد!`,
+        description: `الان حالت «${opt?.label}» فعاله — ${opt?.desc}`,
+      })
+    },
+    [toast, trackEvent]
+  )
+
+  // 🔐 لاگین موفق / خروج
+  const handleAuthSuccess = useCallback(
+    (u: TekaUser) => {
+      setUser(u)
+      setSidebarOpen(false)
+      loadConversations()
+      setConfettiTrigger((v) => v + 1)
+    },
+    [loadConversations]
+  )
+
+  const logout = useCallback(async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' })
+    } catch {
+      /* مهم نیست */
+    }
+    setUser(null)
+    stopSpeaking()
+    setActiveId(null)
+    setMessages([])
+    loadConversations()
+    toast({ title: 'خارج شدی! 👋', description: 'هر وقت خواستی برگرد، ما همینیم!' })
+  }, [loadConversations, stopSpeaking, toast])
 
   // ---------- باز کردن یک گفتگو ----------
   const openConversation = useCallback(
@@ -340,7 +557,12 @@ export default function TekaPage() {
         const res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: content, conversationId: usedConvId, power }),
+          body: JSON.stringify({
+            message: content,
+            conversationId: usedConvId,
+            power,
+            mood: moodRef.current,
+          }),
           signal: AbortSignal.timeout(150_000),
         })
         const data = await res.json().catch(() => null)
@@ -349,6 +571,7 @@ export default function TekaPage() {
           throw new Error(data?.error || 'یه چیزی قاطی شد، دوباره بفرست!')
         }
 
+        trackEvent('chat')
         const convId: string = data.conversationId
 
         // ⭐ نقاشی در پس‌زمینه داره آماده می‌شه — منتظر بمون تا عکس بیاد
@@ -400,7 +623,7 @@ export default function TekaPage() {
         setSending(false)
       }
     },
-    [sending, regenerating, imageBusy, visionBusy, power, bumpConversation, toast, stopSpeaking, waitForNewMessages]
+    [sending, regenerating, imageBusy, visionBusy, power, bumpConversation, toast, stopSpeaking, waitForNewMessages, trackEvent]
   )
 
   // ---------- ساخت تصویر ----------
@@ -422,13 +645,14 @@ export default function TekaPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ prompt: content, conversationId: usedConvId }),
-          signal: AbortSignal.timeout(180_000),
+          signal: AbortSignal.timeout(30_000),
         })
         const data = await res.json().catch(() => null)
         if (!res.ok) {
           throw new Error(data?.error || 'تصویر ساخته نشد!')
         }
 
+        trackEvent('image')
         const convId: string = data.conversationId
 
         // ⭐ جواب فوری اومد؛ عکس تو پس‌زمینه ساخته می‌شه — polling
@@ -465,7 +689,7 @@ export default function TekaPage() {
         setImageBusy(false)
       }
     },
-    [sending, regenerating, imageBusy, visionBusy, bumpConversation, toast, stopSpeaking, waitForNewMessages]
+    [sending, regenerating, imageBusy, visionBusy, bumpConversation, toast, stopSpeaking, waitForNewMessages, trackEvent]
   )
 
   // ---------- تحلیل عکس کاربر (چشم ماشینی تکا) ----------
@@ -497,6 +721,7 @@ export default function TekaPage() {
           throw new Error(data?.error || 'تحلیل عکس نشد!')
         }
 
+        trackEvent('vision')
         if (activeIdRef.current === usedConvId) {
           setMessages((m) => [...m, data.reply])
           if (autoSpeakRef.current) {
@@ -517,7 +742,7 @@ export default function TekaPage() {
         setVisionBusy(false)
       }
     },
-    [sending, regenerating, imageBusy, visionBusy, bumpConversation, toast, stopSpeaking]
+    [sending, regenerating, imageBusy, visionBusy, bumpConversation, toast, stopSpeaking, trackEvent]
   )
 
   // ---------- آنالیز فایل/سند ----------
@@ -552,6 +777,7 @@ export default function TekaPage() {
           throw new Error(data?.error || 'آنالیز فایل نشد!')
         }
 
+        trackEvent('file')
         if (activeIdRef.current === usedConvId) {
           setMessages((m) => [...m, data.reply])
           if (autoSpeakRef.current) {
@@ -572,7 +798,7 @@ export default function TekaPage() {
         setVisionBusy(false)
       }
     },
-    [sending, regenerating, imageBusy, visionBusy, power, bumpConversation, toast, stopSpeaking]
+    [sending, regenerating, imageBusy, visionBusy, power, bumpConversation, toast, stopSpeaking, trackEvent]
   )
 
   // ---------- دوباره جواب بده ----------
@@ -584,7 +810,7 @@ export default function TekaPage() {
       const res = await fetch('/api/chat/regenerate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conversationId: activeIdRef.current, power }),
+        body: JSON.stringify({ conversationId: activeIdRef.current, power, mood: moodRef.current }),
         signal: AbortSignal.timeout(150_000),
       })
       const data = await res.json().catch(() => null)
@@ -604,7 +830,7 @@ export default function TekaPage() {
       })
     } catch (err) {
       toast({
-        title: 'اووپس!',
+        title: 'اوه اوه! 🙈',
         description: err instanceof Error ? err.message : 'یه خطا پیش اومد!',
         variant: 'destructive',
       })
@@ -665,6 +891,7 @@ export default function TekaPage() {
   }, [messages])
 
   const busy = sending || regenerating || imageBusy || visionBusy
+  const currentMood = MOOD_OPTIONS.find((m) => m.id === mood) ?? MOOD_OPTIONS[0]
 
   // ستاره‌های پس‌زمینه (ثابت برای جلوگیری از خطای hydration)
   const stars = useMemo(
@@ -683,14 +910,37 @@ export default function TekaPage() {
     []
   )
 
+  const comets = useMemo(
+    () => [
+      { top: '10%', left: '55%', dur: '11s', delay: '1.5s' },
+      { top: '30%', left: '80%', dur: '13s', delay: '6s' },
+      { top: '55%', left: '35%', dur: '15s', delay: '10.5s' },
+    ],
+    []
+  )
+
   return (
     <div className="relative flex h-dvh w-full overflow-hidden">
-      {/* پس‌زمینهٔ aurora + ستاره‌ها */}
-      <div className="teka-aurora" aria-hidden="true">
+      {/* پس‌زمینهٔ aurora v2 + ستاره‌ها و شهاب‌ها */}
+      <div className="teka-aurora" aria-hidden="true" ref={auroraRef}>
+        <div className="teka-conic" />
+        <div className="teka-noise" />
         <div className="teka-blob teka-blob-1" />
         <div className="teka-blob teka-blob-2" />
         <div className="teka-blob teka-blob-3" />
         <div className="teka-blob teka-blob-4" />
+        {comets.map((c, i) => (
+          <span
+            key={i}
+            className="teka-comet"
+            style={{
+              top: c.top,
+              left: c.left,
+              ['--cdur' as string]: c.dur,
+              animationDelay: c.delay,
+            }}
+          />
+        ))}
         {stars.map((s, i) => (
           <span
             key={i}
@@ -705,7 +955,11 @@ export default function TekaPage() {
             }}
           />
         ))}
+        <div className="teka-mouse-glow" />
       </div>
+
+      {/* 🎉 کانفتی */}
+      <ConfettiBurst trigger={confettiTrigger} />
 
       <TekaSidebar
         conversations={conversations}
@@ -716,11 +970,12 @@ export default function TekaPage() {
         onSelect={openConversation}
         onNewChat={newChat}
         onDelete={deleteConversation}
+        bonusXp={bonusXp}
       />
 
       <div className="relative z-10 flex min-w-0 flex-1 flex-col">
         {/* هدر */}
-        <header className="flex items-center gap-2 border-b border-border/60 bg-background/70 px-3 py-2.5 backdrop-blur-xl md:px-6">
+        <header className="flex items-center gap-1.5 border-b border-border/60 bg-background/70 px-3 py-2.5 backdrop-blur-xl md:gap-2 md:px-6">
           <Button
             variant="ghost"
             size="icon"
@@ -743,6 +998,15 @@ export default function TekaPage() {
             </div>
           </div>
 
+          {/* 🎮 چیپای گیمیفیکیشن (در موبایل مخفی) */}
+          {mounted && (
+            <div className="hidden items-center gap-1.5 sm:flex">
+              <StreakChip count={streakCount} />
+              <QuestsChip quests={quests} />
+              <AchievementsChip />
+            </div>
+          )}
+
           {/* حالت قدرتمند */}
           <Button
             variant={power ? 'default' : 'ghost'}
@@ -755,8 +1019,53 @@ export default function TekaPage() {
             title="حالت قدرتمند: جواب‌های عمیق‌تر و باهوش‌تر"
           >
             <Zap className={`size-4 ${power ? 'fill-current' : ''}`} />
-            <span className="hidden sm:inline">{power ? 'قدرتمند' : 'عادی'}</span>
+            <span className="hidden md:inline">{power ? 'قدرتمند' : 'عادی'}</span>
           </Button>
+
+          {/* 🎭 حالت تکا */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1 rounded-full text-xs font-semibold text-muted-foreground transition-all hover:text-foreground"
+                aria-label="حالت تکا"
+                title="فاز تکا رو عوض کن!"
+              >
+                <span className="text-base leading-none" aria-hidden="true">
+                  {currentMood.emoji}
+                </span>
+                <span className="hidden md:inline">{currentMood.label}</span>
+                <ChevronDown className="size-3.5 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="teka-glass-strong w-56 rounded-2xl border-primary/20"
+            >
+              <DropdownMenuLabel className="text-xs text-muted-foreground">
+                فاز تکا رو انتخاب کن 🎭
+              </DropdownMenuLabel>
+              {MOOD_OPTIONS.map((m) => (
+                <DropdownMenuItem
+                  key={m.id}
+                  onClick={() => selectMood(m.id)}
+                  className={`gap-2.5 rounded-xl py-2.5 ${m.id === mood ? 'bg-primary/10' : ''}`}
+                >
+                  <span className="text-lg" aria-hidden="true">
+                    {m.emoji}
+                  </span>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-semibold">
+                      {m.label}
+                      {m.id === mood ? ' ✓' : ''}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">{m.desc}</span>
+                  </div>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           {/* خواندن خودکار */}
           <Button
@@ -781,7 +1090,7 @@ export default function TekaPage() {
             variant="ghost"
             size="icon"
             onClick={exportChat}
-            className="text-muted-foreground"
+            className="hidden text-muted-foreground sm:inline-flex"
             aria-label="دانلود خروجی چت"
             title="خروجی چت"
           >
@@ -800,9 +1109,59 @@ export default function TekaPage() {
             {mounted && theme === 'dark' ? <Sun className="size-4.5" /> : <Moon className="size-4.5" />}
           </Button>
 
-          <span className="hidden rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-[11px] font-medium text-primary lg:inline">
-            ساختهٔ محمد صادقی
-          </span>
+          {/* 🔐 حساب کاربری */}
+          {mounted && user ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="teka-chip gap-1.5 ps-1 pe-2"
+                  aria-label="حساب کاربری"
+                  title="حساب کاربری"
+                >
+                  <span className="flex size-7 items-center justify-center overflow-hidden rounded-full bg-primary text-xs font-black text-primary-foreground ring-2 ring-primary/40">
+                    {user.image ? (
+                      <img src={user.image} alt="" className="size-full object-cover" />
+                    ) : (
+                      user.name.slice(0, 1)
+                    )}
+                  </span>
+                  <span className="hidden max-w-20 truncate text-xs font-bold md:inline">
+                    {user.name}
+                  </span>
+                  <ChevronDown className="size-3 opacity-60" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="teka-glass-strong w-52 rounded-2xl border-primary/20"
+              >
+                <DropdownMenuLabel>
+                  <p className="truncate text-sm font-bold">{user.name}</p>
+                  <p className="truncate text-[11px] font-normal text-muted-foreground" dir="ltr">
+                    {user.email}
+                  </p>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={logout}
+                  className="gap-2 rounded-xl text-destructive focus:text-destructive"
+                >
+                  <LogOut className="size-4" />
+                  خروج از حساب
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Button
+              size="sm"
+              onClick={() => setAuthOpen(true)}
+              className="teka-shine gap-1.5 rounded-full px-3 text-xs font-bold shadow-md shadow-primary/25"
+              aria-label="ورود یا ثبت‌نام"
+            >
+              <LogIn className="size-4" />
+              <span className="hidden sm:inline">ورود / ثبت‌نام</span>
+            </Button>
+          )}
         </header>
 
         {/* پیام‌ها */}
@@ -902,8 +1261,23 @@ export default function TekaPage() {
           sending={busy}
           analyzing={visionBusy}
           power={power}
+          onVoiceSent={() => trackEvent('voice')}
         />
       </div>
+
+      {/* 🔐 دیالوگ ورود/ثبت‌نام */}
+      <AuthDialog
+        open={authOpen}
+        onOpenChange={setAuthOpen}
+        onSuccess={handleAuthSuccess}
+      />
+
+      {/* 🎉 اوورلی لول‌آپ */}
+      <AnimatePresence>
+        {levelUp && (
+          <LevelUpOverlay level={levelUp.level} rank={levelUp.rank} onClose={() => setLevelUp(null)} />
+        )}
+      </AnimatePresence>
     </div>
   )
 }

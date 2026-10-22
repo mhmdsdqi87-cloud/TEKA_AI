@@ -4,6 +4,7 @@ import {
   buildMemoryText,
   buildSystemPrompt,
   loadHistory,
+  parseMood,
 } from '@/lib/teka'
 import { callLlm, getZai } from '@/lib/llm'
 import {
@@ -14,7 +15,7 @@ import {
   FAKE_DRAW_RE,
 } from '@/lib/image-draw'
 
-type RouteBody = { conversationId?: string; power?: boolean }
+type RouteBody = { conversationId?: string; power?: boolean; mood?: string }
 
 /**
  * دوباره جواب دادن: آخرین جواب تکا حذف می‌شه و یه جواب تازه ساخته می‌شه.
@@ -25,6 +26,7 @@ export async function POST(req: NextRequest) {
     const body = (await req.json().catch(() => null)) as RouteBody | null
     const conversationId = body?.conversationId
     const power = body?.power === true
+    const mood = parseMood(body?.mood)
 
     if (typeof conversationId !== 'string' || !conversationId) {
       return NextResponse.json({ error: 'چتی انتخاب نشده!' }, { status: 400 })
@@ -63,7 +65,7 @@ export async function POST(req: NextRequest) {
       loadHistory(conversationId),
       buildMemoryText(conversationId),
     ])
-    const systemPrompt = buildSystemPrompt(memoryText, conversation.title, power)
+    const systemPrompt = buildSystemPrompt(memoryText, conversation.title, power, mood)
 
     const reply = await callLlm(
       [{ role: 'assistant', content: systemPrompt }, ...history],

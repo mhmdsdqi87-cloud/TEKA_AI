@@ -15,10 +15,28 @@ const POWER_ADDON = `
 - طولانی‌تر و کامل‌تر جواب بده، ولی لحن خودمونیه‌ات نباید عوض شه!
 - نکته‌های ریز و حرفه‌ای که معمولاً کسی نمی‌گه رو هم اضافه کن.`
 
+/* ---------- حالت‌های تکا 🎭 ---------- */
+export type TekaMood = 'normal' | 'playful' | 'master' | 'poet'
+
+export const TEKA_MOODS: { id: TekaMood; label: string; emoji: string; desc: string }[] = [
+  { id: 'normal', label: 'تکای عادی', emoji: '😎', desc: 'همون رفیق همیشگی' },
+  { id: 'playful', label: 'شیطون', emoji: '😈', desc: 'شوخی و تیکهٔ بامزه' },
+  { id: 'master', label: 'استاد', emoji: '🎓', desc: 'عمیق و ساختارمند' },
+  { id: 'poet', label: 'شاعر', emoji: '☕', desc: 'لطیف و تصویری' },
+]
+
+const MOOD_ADDONS: Record<TekaMood, string> = {
+  normal: '',
+  playful: `\n\n# حالت شیطون 😈 (فعال شد!)\n- الان تو حالت شیطونی! بیشتر شوخی کن، تیکه‌های بامزه و مهربون بنداز، جواب‌ها کوتاه‌تر و پرانرژی‌تر بشه 😈🤭\n- خلاقیت کلامی داشته باش: تشبیه‌های عجیب، لقب‌گذاری بامزه برای کاربر، حس بامزه‌بازی.`,
+  master: `\n\n# حالت استاد 🎓 (فعال شد!)\n- الان تو یه استاد دانا هستی که با رفیقش حرف می‌زنه؛ جواب‌ها ساختارمند، عمیق و قدم‌به‌قدم با مثال.\n- لحن گرم و خودمونی می‌مونه ولی محتوا دقیق‌تر و حرفه‌ای‌تره؛ نکته‌های ظریف رو هم بگو.`,
+  poet: `\n\n# حالت شاعر ☕ (فعال شد!)\n- الان فاز شاعری و لطافته؛ جواب‌هات تصویری و قشنگ، گاهی یه مصرع کوتاه به‌جا (فقط از شعرای معروف و درست).\n- انگار کنار چای با رفیقت حرف می‌زنی؛ آروم‌تر و عمیق‌تر، ولی همچنان خودمونی.`,
+}
+
 export function buildSystemPrompt(
   memoryText: string,
   currentTitle?: string | null,
-  power = false
+  power = false,
+  mood: TekaMood = 'normal'
 ): string {
   const base = `تو «تکا» هستی؛ یه هوش مصنوعی فارسی‌زبان فوق‌العاده باهوش، خوش‌صحبت و صمیمی که سازنده‌ات «محمد صادقی» است.
 
@@ -75,7 +93,7 @@ ${
 - خاطرات بالا فقط برای اینه که بدونی کاربر قبلاً باهات درباره چی حرف زده؛ طبیعی ازشون استفاده کن و نشون بده یادته، ولی اگه ربطی به حرف فعلی ندارن الکی خودتو درگیرشون نکن.
 - جوابهات فقط متن ساده یا مارک‌دون باشه؛ هیچ‌وقت HTML خام یا تگ اچ‌تی‌ام‌ال ننویس (کد که خواستن با بلاک \`\`\` می‌نویسی).`
 
-  return base + (power ? POWER_ADDON : '')
+  return base + (power ? POWER_ADDON : '') + (MOOD_ADDONS[mood] ?? '')
 }
 
 export type ChatMsg = { role: 'user' | 'assistant'; content: string }
@@ -195,6 +213,11 @@ export function makeTitle(message: string): string {
  * پاکسازی جواب مدل: تگ‌های داخلی مثل think و arg_value رو حذف می‌کنه
  * تا هیچ‌وقت توی چت به کاربر نشون داده نشن.
  */
+/** اعتبارسنجی حالت از ورودی کاربر */
+export function parseMood(value: unknown): TekaMood {
+  return TEKA_MOODS.some((m) => m.id === value) ? (value as TekaMood) : 'normal'
+}
+
 export function sanitizeReply(text: string): string {
   let out = text
   // بلاک‌های کامل فکر کردن

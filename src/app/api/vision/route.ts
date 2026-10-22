@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getUserFromRequest } from '@/lib/auth'
 import { makeTitle } from '@/lib/teka'
 import { MARKER_UIMG, buildSystemPrompt, loadHistory, plainForModel } from '@/lib/teka'
 import { getZai } from '@/lib/llm'
@@ -84,8 +85,9 @@ export async function POST(req: NextRequest) {
         : null
 
     if (!conversation) {
+      const user = await getUserFromRequest(req)
       conversation = await db.conversation.create({
-        data: { title: makeTitle(`📷 ${cleanQuestion}`) },
+        data: { title: makeTitle(`📷 ${cleanQuestion}`), userId: user?.id ?? null },
       })
     }
 

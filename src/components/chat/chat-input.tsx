@@ -51,6 +51,7 @@ type ChatInputProps = {
   sending: boolean
   analyzing: boolean
   power: boolean
+  onVoiceSent?: () => void
 }
 
 const QUICK_TOOLS: { icon: React.ElementType; text: string }[] = [
@@ -79,6 +80,7 @@ export function ChatInput({
   sending,
   analyzing,
   power,
+  onVoiceSent,
 }: ChatInputProps) {
   const { toast } = useToast()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -252,17 +254,18 @@ export function ChatInput({
         const prev = valueRef.current.trim()
         onChange(prev ? `${prev} ${text}` : text)
         toast({ title: 'شنیدم! 🎤', description: 'متنش رفت توی چت، چکش کن بعد بفرست.' })
+        onVoiceSent?.()
       }
     } catch (err) {
       toast({
-        title: 'اووپس!',
+        title: 'اوه اوه! 🙈',
         description: err instanceof Error ? err.message : 'صدات ضبط نشد!',
         variant: 'destructive',
       })
     } finally {
       setTranscribing(false)
     }
-  }, [clearTimers, onChange, toast])
+  }, [clearTimers, onChange, toast, onVoiceSent])
 
   const toggleMic = useCallback(async () => {
     if (transcribing) return

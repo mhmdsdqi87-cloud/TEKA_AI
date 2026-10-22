@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getUserFromRequest } from '@/lib/auth'
 import { makeTitle, sanitizeInput } from '@/lib/teka'
 import { drawAndSaveBackground } from '@/lib/image-draw'
 
@@ -36,6 +37,8 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    const user = await getUserFromRequest(req)
+
     // ۱) پیدا کردن یا ساختن گفتگو
     let conversation =
       typeof conversationId === 'string' && conversationId
@@ -44,7 +47,7 @@ export async function POST(req: NextRequest) {
 
     if (!conversation) {
       conversation = await db.conversation.create({
-        data: { title: makeTitle(`🎨 ${cleanPrompt}`) },
+        data: { title: makeTitle(`🎨 ${cleanPrompt}`), userId: user?.id ?? null },
       })
     }
 

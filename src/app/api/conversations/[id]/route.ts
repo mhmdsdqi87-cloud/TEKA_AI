@@ -1,5 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getUserFromRequest } from '@/lib/auth'
+
+/** چک دسترسی: چت‌های مهمان برای همه، چت کاربر فقط برای خودش */
+async function canAccess(
+  req: NextRequest,
+  conversationId: string
+): Promise<{ ok: boolean; status?: number; error?: string }> {
+  const conversation = await db.conversation.findUnique({
+    where: { id: conversationId },
+    select: { userId: true },
+  })
+  if (!conversation) return { ok: false, status: 404, error: 'این چت پیدا نشد!' }
+  if (conversation.userId) {
+    const user = await getUserFromRequest(req)
+    if (!user || user.id !== conversation.userId) {
+      return { ok: false, status: 403, error: 'این چت مال تو نیست داداش! 🔒' }
+    }
+  }
+  return { ok: true }
+}
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -8,6 +28,13 @@ type RouteParams = { params: Promise<{ id: string }> }
 export async function GET(req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params
+    const access = await canAccess(req, id)
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.error ?? 'دسترسی نداری!' },
+        { status: access.status ?? 403 }
+      )
+    }
     const afterParam = req.nextUrl.searchParams.get('after')
     const after = afterParam ? new Date(afterParam) : null
     const validAfter = after && !Number.isNaN(after.getTime()) ? after : null
@@ -44,6 +71,13 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 export async function DELETE(_req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params
+    const access = await canAccess(req, id)
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.error ?? 'دسترسی نداری!' },
+        { status: access.status ?? 403 }
+      )
+    }
     await db.conversation.delete({ where: { id } })
     return NextResponse.json({ ok: true })
   } catch (err) {

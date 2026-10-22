@@ -1,10 +1,15 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getUserFromRequest } from '@/lib/auth'
 
-// لیست همهٔ گفتگوها
-export async function GET() {
+// لیست گفتگوهای کاربر (یا مهمان)
+export async function GET(req: NextRequest) {
   try {
+    const user = await getUserFromRequest(req)
+    // کاربر لاگین‌شده: چت‌های خودش + چت‌های مهمانِ قدیمی
+    // مهمان: فقط چت‌های بدون صاحب
     const conversations = await db.conversation.findMany({
+      where: user ? { OR: [{ userId: user.id }, { userId: null }] } : { userId: null },
       orderBy: { updatedAt: 'desc' },
       select: {
         id: true,
@@ -22,10 +27,11 @@ export async function GET() {
 }
 
 // ساخت گفتگوی جدید خالی
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
+    const user = await getUserFromRequest(req)
     const conversation = await db.conversation.create({
-      data: { title: 'چت جدید' },
+      data: { title: 'چت جدید', userId: user?.id ?? null },
       select: { id: true, title: true, createdAt: true },
     })
     return NextResponse.json({ conversation }, { status: 201 })

@@ -172,7 +172,7 @@ function ImageMessage({
       <img
         src={dataUrl}
         alt="تصویر ساخته‌شده توسط تکا"
-        className="block w-full"
+        className="teka-img-reveal block w-full"
         loading="lazy"
       />
       <div className="flex items-center justify-between bg-background/70 px-3 py-2 backdrop-blur">
@@ -411,7 +411,7 @@ export function MessageBubble({
     >
       <TekaAvatar />
       <div className="min-w-0 max-w-[85%] md:max-w-[75%]">
-        <div className="teka-md teka-glass rounded-2xl rounded-tr-md px-4 py-3 text-[15px]">
+        <div className="teka-md teka-border-anim rounded-2xl rounded-tr-md px-4 py-3 text-[15px]">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
         </div>
 

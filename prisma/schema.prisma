@@ -7,12 +7,28 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  name         String
+  passwordHash String?
+  image        String?
+  createdAt    DateTime      @default(now())
+  conversations Conversation[]
+
+  @@index([email])
+}
+
 model Conversation {
   id        String    @id @default(cuid())
   title     String    @default("چت جدید")
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   messages  Message[]
+  userId    String?
+  user      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
 }
 
 model Message {

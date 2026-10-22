@@ -29,6 +29,7 @@ type SidebarProps = {
   onSelect: (id: string) => void
   onNewChat: () => void
   onDelete: (id: string) => void
+  bonusXp?: number
 }
 
 export function TekaSidebar({
@@ -40,13 +41,14 @@ export function TekaSidebar({
   onSelect,
   onNewChat,
   onDelete,
+  bonusXp = 0,
 }: SidebarProps) {
   const [deleteTarget, setDeleteTarget] = useState<ConversationSummary | null>(null)
   const [query, setQuery] = useState('')
 
   // ---------- سیستم سطح و XP ----------
   const { level, progress, rank, totalMsgs } = useMemo(() => {
-    const total = conversations.reduce((s, c) => s + (c.messageCount ?? 0), 0)
+    const total = conversations.reduce((s, c) => s + (c.messageCount ?? 0), 0) + bonusXp
     const lvl = Math.floor(total / 10) + 1
     const prog = (total % 10) / 10
     const rankName =
@@ -60,7 +62,7 @@ export function TekaSidebar({
               ? 'رفیق باحال 🙌'
               : 'تازه‌کار خفن 🌱'
     return { level: lvl, progress: prog, rank: rankName, totalMsgs: total }
-  }, [conversations])
+  }, [conversations, bonusXp])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()

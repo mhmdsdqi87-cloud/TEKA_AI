@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getUserFromRequest } from '@/lib/auth'
 import {
   MARKER_FILE,
   buildSystemPrompt,
@@ -169,8 +170,9 @@ export async function POST(req: NextRequest) {
         : null
 
     if (!conversation) {
+      const user = await getUserFromRequest(req)
       conversation = await db.conversation.create({
-        data: { title: makeTitle(`📄 ${userQuestion}`) },
+        data: { title: makeTitle(`📄 ${userQuestion}`), userId: user?.id ?? null },
       })
     }
 
