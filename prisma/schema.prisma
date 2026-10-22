@@ -2,6 +2,7 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// لوکال: SQLite (file:) — ورسل: Turso با آداپتور libsql (تو src/lib/db.ts)
 datasource db {
   provider = "sqlite"
   url      = env("DATABASE_URL")

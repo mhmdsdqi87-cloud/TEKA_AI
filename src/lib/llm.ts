@@ -1,11 +1,11 @@
-import ZAI from 'z-ai-web-dev-sdk'
 import { sanitizeReply } from '@/lib/teka'
+import { getAI, type AIClient } from '@/lib/ai'
 
-let zaiInstance: Awaited<ReturnType<typeof ZAI.create>> | null = null
+let zaiInstance: AIClient | null = null
 
-export async function getZai() {
+export async function getZai(): Promise<AIClient> {
   if (!zaiInstance) {
-    zaiInstance = await ZAI.create()
+    zaiInstance = await getAI()
   }
   return zaiInstance
 }
