@@ -224,3 +224,17 @@ export function cleanTextForTts(text: string): string {
     .trim()
     .slice(0, 900)
 }
+
+/**
+ * ضدگلوله: ورودی کاربر رو برای دیتابیس امن کن.
+ * کنترل‌کاراکترها و سوروگیت‌های تنها (از تایپ ناقص مرورگر/IME) حذف می‌شن
+ * تا SQLite هیچ‌وقت با «unexpected end of hex escape» قاطی نکنه.
+ */
+export function sanitizeInput(s: string): string {
+  return s
+    .replace(/\u0000/g, '')
+    .replace(
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
+      ''
+    )
+}

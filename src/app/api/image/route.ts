@@ -1,18 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { makeTitle } from '@/lib/teka'
-import { getZai } from '@/lib/llm'
-import {
-  IMAGE_MARKER,
-  drawWithRescue,
-  gracefulFallbackText,
-} from '@/lib/image-draw'
+import { makeTitle, sanitizeInput } from '@/lib/teka'
+import { drawAndSaveBackground } from '@/lib/image-draw'
 
 /**
- * تصویرساز تکا: از متن یه عکس هنری می‌سازه.
- * پیام کاربر و جواب تصویری (به‌صورت data URL) توی دیتابیس ذخیره می‌شن
- * تا توی حافظه و تاریخچه هم بمونن.
- * اگه فیلتر همه‌چیز رو رد کرد، تکا با پیام متنی خودمونی توضیح می‌ده (نه ارور!).
+ * تصویرساز تکا (نسخهٔ آسنکرون ⚡):
+ * پیام کاربر ذخیره می‌شه، نقاشی تو پس‌زمینه شروع می‌شه و «همین حالا»
+ * جواب processing برمی‌گرده — دیگه هیچ پروکسی و تایم‌اوتی نمی‌تونه قطعش کنه.
+ * فرانت با polling پیام آماده‌شده رو برمی‌داره.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -33,7 +28,13 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const cleanPrompt = prompt.trim()
+    const cleanPrompt = sanitizeInput(prompt.trim())
+    if (!cleanPrompt) {
+      return NextResponse.json(
+        { error: 'بگو چی بکشم داداش! 🎨' },
+        { status: 400 }
+      )
+    }
 
     // ۱) پیدا کردن یا ساختن گفتگو
     let conversation =
@@ -56,36 +57,13 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // ۳) کشیدن با زنجیرهٔ نجات
-    const zai = await getZai()
-    const base64 = await drawWithRescue(zai, cleanPrompt)
-
-    let content: string
-    if (base64) {
-      content = `${IMAGE_MARKER}data:image/png;base64,${base64}`
-    } else {
-      // ⭐ fallback دوستانه: به‌جای ارور، تکا متنی توضیح می‌ده
-      content = await gracefulFallbackText(cleanPrompt)
-    }
-
-    // ۴) ذخیرهٔ جواب تکا
-    const saved = await db.message.create({
-      data: { conversationId: conversation.id, role: 'assistant', content },
-    })
-    await db.conversation.update({
-      where: { id: conversation.id },
-      data: { updatedAt: new Date() },
-    })
+    // ۳) ⭐ شروع نقاشی در پس‌زمینه (بدون await) — جواب فوری برمی‌گرده
+    void drawAndSaveBackground(conversation.id, cleanPrompt)
 
     return NextResponse.json({
       conversationId: conversation.id,
       title: conversation.title,
-      reply: {
-        id: saved.id,
-        role: 'assistant' as const,
-        content,
-        createdAt: saved.createdAt,
-      },
+      processing: true,
     })
   } catch (err) {
     console.error('[api/image] error:', err)

@@ -4,14 +4,20 @@ import { db } from '@/lib/db'
 type RouteParams = { params: Promise<{ id: string }> }
 
 // پیام‌های یک گفتگو
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+// ?after=ISO → فقط پیام‌های بعد از این زمان (polling سبک برای تصویرسازی)
+export async function GET(req: NextRequest, { params }: RouteParams) {
   try {
     const { id } = await params
+    const afterParam = req.nextUrl.searchParams.get('after')
+    const after = afterParam ? new Date(afterParam) : null
+    const validAfter = after && !Number.isNaN(after.getTime()) ? after : null
+
     const conversation = await db.conversation.findUnique({
       where: { id },
       include: {
         messages: {
           orderBy: { createdAt: 'asc' },
+          where: validAfter ? { createdAt: { gt: validAfter } } : undefined,
           select: { id: true, role: true, content: true, createdAt: true },
         },
       },

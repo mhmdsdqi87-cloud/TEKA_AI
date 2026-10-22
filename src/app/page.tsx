@@ -18,7 +18,12 @@ import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
 import { TekaSidebar } from '@/components/chat/sidebar'
 import { ChatInput } from '@/components/chat/chat-input'
-import { EmptyState, MessageBubble, TypingIndicator } from '@/components/chat/message-list'
+import {
+  EmptyState,
+  MessageBubble,
+  PaintingPlaceholder,
+  TypingIndicator,
+} from '@/components/chat/message-list'
 import type { ChatMessage, ConversationSummary } from '@/components/chat/types'
 import type { PendingFile } from '@/components/chat/chat-input'
 
@@ -42,11 +47,12 @@ export default function TekaPage() {
   const [visionBusy, setVisionBusy] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [input, setInput] = useState('')
-  const [power, setPower] = useState(false)
+  const [power, setPower] = useState(true) // ⭐ پیش‌فرض: قدرتمند!
   const [autoSpeak, setAutoSpeak] = useState(false)
   const [speakingId, setSpeakingId] = useState<string | null>(null)
   const [speakingLoadingId, setSpeakingLoadingId] = useState<string | null>(null)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
+  const [awaitingArt, setAwaitingArt] = useState(false) // منتظر عکسِ در حال ساخت تو چت عادی
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const mainRef = useRef<HTMLElement>(null)
@@ -61,7 +67,8 @@ export default function TekaPage() {
   useEffect(() => {
     setMounted(true)
     try {
-      setPower(localStorage.getItem('teka-power') === '1')
+      const savedPower = localStorage.getItem('teka-power')
+      setPower(savedPower === null ? true : savedPower === '1') // پیش‌فرض: قدرتمند
       setAutoSpeak(localStorage.getItem('teka-autospeak') === '1')
     } catch {
       /* noop */
@@ -284,6 +291,37 @@ export default function TekaPage() {
     })
   }, [])
 
+  /**
+   * ⭐ polling آسنکرون: منتظر پیام تازه (عکس) می‌مونه تا از سرور بیاد.
+   * چون نقاشی تو پس‌زمینه ساخته می‌شه و جواب POST فوریه، هیچ‌وقت
+   * تایم‌اوت پروکسی نمی‌تونه وسط کار بکُشه‌ش!
+   */
+  const waitForNewMessages = useCallback(
+    async (convId: string, maxMs = 170_000): Promise<ChatMessage[]> => {
+      const sinceIso = new Date(Date.now() - 5000).toISOString()
+      const deadline = Date.now() + maxMs
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 3500))
+        try {
+          const res = await fetch(
+            `/api/conversations/${convId}?after=${encodeURIComponent(sinceIso)}`,
+            { cache: 'no-store', signal: AbortSignal.timeout(20_000) }
+          )
+          if (!res.ok) continue
+          const data = await res.json().catch(() => null)
+          const fresh: ChatMessage[] = (data?.conversation?.messages ?? []).filter(
+            (m: ChatMessage) => m.role === 'assistant'
+          )
+          if (fresh.length > 0) return fresh
+        } catch {
+          /* شبکه یه لحظه قاطی کرد — ادامه بده */
+        }
+      }
+      return []
+    },
+    []
+  )
+
   // ---------- ارسال پیام ----------
   const send = useCallback(
     async (text: string) => {
@@ -313,6 +351,34 @@ export default function TekaPage() {
 
         const convId: string = data.conversationId
 
+        // ⭐ نقاشی در پس‌زمینه داره آماده می‌شه — منتظر بمون تا عکس بیاد
+        if (data.processing === true) {
+          setActiveId(convId)
+          setAwaitingArt(true)
+          try {
+            const fresh = await waitForNewMessages(convId)
+            if (fresh.length > 0) {
+              if (activeIdRef.current === convId) {
+                setMessages((m) => [...m, ...fresh])
+                if (autoSpeakRef.current && !fresh[0]?.content?.startsWith('TEKA_IMG::')) {
+                  speakRef.current?.(fresh[0])
+                }
+              }
+              bumpConversation(convId, data.title)
+            } else {
+              toast({
+                title: 'داره آماده می‌شه! ⏳',
+                description:
+                  'نقاشی تو پس‌زمینه کار می‌کنه؛ چند لحظه دیگه بیا تو همین چت، اینجاست! 🎨',
+              })
+              bumpConversation(convId, data.title)
+            }
+          } finally {
+            setAwaitingArt(false)
+          }
+          return
+        }
+
         if (activeIdRef.current === usedConvId) {
           setMessages((m) => [...m, data.reply])
           // خواندن خودکار جواب اگه روشنه
@@ -334,7 +400,7 @@ export default function TekaPage() {
         setSending(false)
       }
     },
-    [sending, regenerating, imageBusy, visionBusy, power, bumpConversation, toast, stopSpeaking]
+    [sending, regenerating, imageBusy, visionBusy, power, bumpConversation, toast, stopSpeaking, waitForNewMessages]
   )
 
   // ---------- ساخت تصویر ----------
@@ -363,12 +429,30 @@ export default function TekaPage() {
           throw new Error(data?.error || 'تصویر ساخته نشد!')
         }
 
-        if (activeIdRef.current === usedConvId) {
-          setMessages((m) => [...m, data.reply])
+        const convId: string = data.conversationId
+
+        // ⭐ جواب فوری اومد؛ عکس تو پس‌زمینه ساخته می‌شه — polling
+        setActiveId(convId)
+        setAwaitingArt(true)
+        try {
+          const fresh = await waitForNewMessages(convId)
+          if (fresh.length > 0) {
+            if (activeIdRef.current === convId) {
+              setMessages((m) => [...m, ...fresh])
+            }
+            bumpConversation(convId, data.title)
+            toast({ title: 'اینم عکسش! 🎨', description: 'تکا نقاشی زد، خوشت اومد؟' })
+          } else {
+            toast({
+              title: 'داره آماده می‌شه! ⏳',
+              description:
+                'نقاشی تو پس‌زمینه کار می‌کنه؛ چند لحظه دیگه بیا تو همین چت، اینجاست! 🎨',
+            })
+            bumpConversation(convId, data.title)
+          }
+        } finally {
+          setAwaitingArt(false)
         }
-        setActiveId(data.conversationId)
-        bumpConversation(data.conversationId, data.title)
-        toast({ title: 'اینم عکسش! 🎨', description: 'تکا نقاشی زد، خوشت اومد؟' })
       } catch (err) {
         setMessages((m) => m.filter((x) => x.id !== tempId))
         setInput(content)
@@ -381,7 +465,7 @@ export default function TekaPage() {
         setImageBusy(false)
       }
     },
-    [sending, regenerating, imageBusy, visionBusy, bumpConversation, toast, stopSpeaking]
+    [sending, regenerating, imageBusy, visionBusy, bumpConversation, toast, stopSpeaking, waitForNewMessages]
   )
 
   // ---------- تحلیل عکس کاربر (چشم ماشینی تکا) ----------
@@ -744,19 +828,42 @@ export default function TekaPage() {
                     </div>
                   ))}
                 {!loadingMessages &&
-                  messages.map((m) => (
-                    <MessageBubble
-                      key={m.id}
-                      message={m}
-                      isLastAssistant={m.id === lastAssistantId && !busy}
-                      onCopy={copyText}
-                      onSpeak={speak}
-                      onRegenerate={regenerate}
-                      speakingId={speakingId}
-                      speakingLoadingId={speakingLoadingId}
-                    />
-                  ))}
-                {busy && <TypingIndicator power={power} painting={imageBusy} analyzing={visionBusy} />}
+                  messages.map((m, idx) => {
+                    // ⭐ برای عکس‌ها پرامپت اصلی رو پیدا کن تا «دوباره بکش» کار کنه
+                    let redrawPrompt: string | undefined
+                    if (m.role === 'assistant' && m.content.startsWith('TEKA_IMG::')) {
+                      for (let j = idx - 1; j >= 0; j--) {
+                        if (messages[j].role === 'user') {
+                          redrawPrompt = messages[j].content
+                            .replace(/^🎨 درخواست تصویر:\s*/, '')
+                            .replace(/^TEKA_UIMG::.*\n?/, '')
+                            .trim()
+                          break
+                        }
+                      }
+                    }
+                    return (
+                      <MessageBubble
+                        key={m.id}
+                        message={m}
+                        isLastAssistant={m.id === lastAssistantId && !busy}
+                        onCopy={copyText}
+                        onSpeak={speak}
+                        onRegenerate={regenerate}
+                        onRedraw={
+                          redrawPrompt && !busy
+                            ? () => sendImage(redrawPrompt)
+                            : undefined
+                        }
+                        speakingId={speakingId}
+                        speakingLoadingId={speakingLoadingId}
+                      />
+                    )
+                  })}
+                {(imageBusy || awaitingArt) && <PaintingPlaceholder />}
+                {!imageBusy && !awaitingArt && busy && (
+                  <TypingIndicator power={power} analyzing={visionBusy} />
+                )}
               </div>
             )}
             <div ref={bottomRef} />

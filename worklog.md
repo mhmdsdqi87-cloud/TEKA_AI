@@ -86,3 +86,23 @@ Stage Summary:
 - کلمهٔ «اووپس» کاملاً از UI و بک‌اند حذف شد؛ فیل‌بک متنی دوستانه به‌جای ارور مرده.
 - سه لایهٔ دفاعی تصویر: رجکس مستقیم → TEKA_DRAW مدل → تلهٔ ضدتقلید.
 - فایل‌های کلیدی: src/lib/image-draw.ts (جدید)، src/app/api/chat/route.ts، src/app/api/chat/regenerate/route.ts، src/lib/teka.ts، src/lib/llm.ts، src/app/page.tsx.
+
+---
+Task ID: 4
+Agent: main (Z.ai Code)
+Task: سیستم تصویرسازی آسنکرون (رفع قطع‌شدن وسط کار + ارور بعد از چرخیدن) + انیمیشن‌ها و آپشن‌های خفن
+
+Work Log:
+- ریشه: عکس ۳۰-۷۵ ثانیه طول می‌کشه ولی پروکسی/تایم‌اوت کانکشن رو می‌کشه → کاربر ارور می‌بینه ولی عکس تو DB ذخیره شده (با خروج/برگشت دیده می‌شد).
+- راه‌حل آسنکرون: POST /api/image و هر ۳ مسیر تصویری /api/chat (مستقیم رجکسی، TEKA_DRAW، تلهٔ ضدتقلید) الان «processing: true» رو فوری (0.13s) برمی‌گردونن و drawAndSaveBackground تو src/lib/image-draw.ts نقاشی رو تو پس‌زمینه می‌کشه و ذخیره می‌کنه (با fallback متنی که polling بی‌نهایت نشه).
+- GET /api/conversations/[id]?after=ISO اضافه شد برای polling سبک (فقط پیام‌های جدید، بدون ارسال دوباره عکس‌های قدیمی سنگین).
+- فرانت: waitForNewMessages (هر 3.5s، سقف 170s) در send و sendImage؛ state awaitingArt برای ایندیکیتور نقاشی در چت عادی؛ setActiveId قبل از polling؛ چک اپند با convId.
+- انیمیشن: PaintingPlaceholder (کارت شیمردار با براش متحرک 🎨، جمله‌های چرخشی «دارم طرح رو می‌زنم…»، نوار پیشرفت) + درخشش ✨ چهارستاره هنگام رسیدن عکس؛ keyframes teka-shimmer در globals.css.
+- آپشن‌ها: دکمهٔ «دوباره بکش» روی عکس‌ها (پرامپت از نزدیک‌ترین پیام کاربر)؛ حالت قدرتمند پیش‌فرض روشن شد.
+- ضدگلوله: sanitizeInput در teka.ts (حذف کنترل‌کاراکتر و سوروگیت تنها) — ارور SQLite «unexpected end of hex escape» از ورودی خراب IME رفع شد.
+- تست: POST عکس 0.13s ✅؛ polling بعد ~30s عکس رو پیدا کرد ✅؛ مرورگر E2E: کارت نقاشی نشون داده شد، پاندای خندان با شال قرمز خودش اومد بدون خروج/برگشت ✅؛ دکمهٔ «دوباره بکش» و «دانلود» موجود ✅؛ چت معمولی 200 ✅؛ کنسول صفر ارور ✅؛ lint پاک ✅.
+
+Stage Summary:
+- دیگه هیچ درخواست عکسی تایم‌اوت نمی‌خوره — جواب فوری + ساخت پس‌زمینه + polling.
+- عکس همین‌جا تو چت ظاهر می‌شه، کاربر لازم نیست بیرون/داخل شه.
+- فایل‌ها: src/lib/image-draw.ts (drawAndSaveBackground)، api/image، api/chat، api/conversations/[id] (after)، page.tsx، message-list.tsx (PaintingPlaceholder+sparkle+redraw)، globals.css، teka.ts (sanitizeInput).

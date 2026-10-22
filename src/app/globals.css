@@ -463,3 +463,24 @@
   background: color-mix(in oklab, var(--primary) 10%, transparent);
   font-weight: 600;
 }
+
+/* ---------- 🎨 شیمر کارت نقاشی در حال ساخت ---------- */
+.teka-shimmer {
+  background: linear-gradient(
+    110deg,
+    color-mix(in oklab, var(--muted) 65%, transparent) 32%,
+    color-mix(in oklab, var(--primary) 22%, transparent) 50%,
+    color-mix(in oklab, var(--muted) 65%, transparent) 68%
+  );
+  background-size: 220% 100%;
+  animation: teka-shimmer-sweep 1.9s linear infinite;
+}
+
+@keyframes teka-shimmer-sweep {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}

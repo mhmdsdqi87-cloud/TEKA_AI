@@ -1,3 +1,4 @@
+import { db } from '@/lib/db'
 import { callLlm, getZai } from '@/lib/llm'
 import { DRAW_MARKER } from '@/lib/teka'
 
@@ -273,4 +274,50 @@ export async function gracefulFallbackText(rawPrompt: string): Promise<string> {
     aiMsg?.trim() ||
     'داداش، فیلتر نقاشی این سوژه رو قبول نکرد 😅 ولی اگه یه ذره‌ی دیگه عوضش کنی یا سوژهٔ بامزه‌تری بخوای، من آماده‌ام! 🎨'
   )
+}
+
+/**
+ * ⭐ کشیدن + ذخیره در پس‌زمینه (آسنکرون)
+ * route سریع جواب «processing» می‌ده و این تابع خودش تو پس‌زمینه عکس رو
+ * می‌کشه و تو دیتابیس ذخیره می‌کنه؛ فرانت با polling مال خودشو برمی‌داره.
+ * دیگه هیچ‌وقت پروکسی وسط راه کانکشن رو نمی‌کشه چون جواب فوریه!
+ */
+export async function drawAndSaveBackground(
+  conversationId: string,
+  drawPrompt: string
+): Promise<void> {
+  try {
+    const zai = await getZai()
+    const base64 = await drawWithRescue(zai, drawPrompt)
+    const content = base64
+      ? `${IMAGE_MARKER}data:image/png;base64,${base64}`
+      : await gracefulFallbackText(drawPrompt)
+
+    await db.message.create({
+      data: { conversationId, role: 'assistant', content },
+    })
+    await db.conversation.update({
+      where: { id: conversationId },
+      data: { updatedAt: new Date() },
+    })
+  } catch (err) {
+    console.error('[image-draw] background draw failed:', err)
+    // حداقل یه پیام بذار که فرانت تو polling بی‌نهایت گیر نکنه
+    try {
+      await db.message.create({
+        data: {
+          conversationId,
+          role: 'assistant',
+          content:
+            'داداش نقاشی قاطی شد! 😅 دوباره بگو «بکش» تا از اول امتحان کنم، این دفعه حتماً درست می‌شه!',
+        },
+      })
+      await db.conversation.update({
+        where: { id: conversationId },
+        data: { updatedAt: new Date() },
+      })
+    } catch {
+      /* دیگه کاری نمی‌شه کرد */
+    }
+  }
 }

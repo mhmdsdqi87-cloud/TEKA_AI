@@ -137,15 +137,38 @@ export function TypingIndicator({
 }
 
 /* ---------- پیام تصویری (خروجی تصویرساز) ---------- */
-function ImageMessage({ content }: { content: string }) {
+function ImageMessage({
+  content,
+  onRedraw,
+}: {
+  content: string
+  onRedraw?: () => void
+}) {
   const dataUrl = content.slice(IMAGE_MARKER.length)
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.92, y: 14 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       transition={{ ...SPRING, delay: 0.05 }}
-      className="teka-img-frame w-full max-w-sm"
+      className="teka-img-frame relative w-full max-w-sm"
     >
+      {/* ✨ درخشش لحظهٔ رسیدن عکس */}
+      {[0, 1, 2, 3].map((i) => (
+        <motion.span
+          key={i}
+          aria-hidden="true"
+          className="pointer-events-none absolute z-10 text-lg"
+          style={{
+            top: `${[8, 62, 20, 78][i]}%`,
+            left: `${[86, 6, 4, 90][i]}%`,
+          }}
+          initial={{ opacity: 0, scale: 0 }}
+          animate={{ opacity: [0, 1, 0], scale: [0, 1.3, 0.4] }}
+          transition={{ delay: 0.15 + i * 0.18, duration: 1.4, repeat: 2, repeatDelay: 0.25 }}
+        >
+          ✨
+        </motion.span>
+      ))}
       <img
         src={dataUrl}
         alt="تصویر ساخته‌شده توسط تکا"
@@ -156,15 +179,95 @@ function ImageMessage({ content }: { content: string }) {
         <span className="text-[11px] font-medium text-muted-foreground">
           🎨 تصویرساز تکا
         </span>
-        <a
-          href={dataUrl}
-          download={`teka-art-${Date.now()}.png`}
-          className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10"
-          aria-label="دانلود تصویر"
-        >
-          <Download className="size-3.5" />
-          دانلود
-        </a>
+        <div className="flex items-center gap-1">
+          {onRedraw && (
+            <button
+              onClick={onRedraw}
+              className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10"
+              aria-label="دوباره بکش"
+            >
+              <RefreshCw className="size-3.5" />
+              دوباره بکش
+            </button>
+          )}
+          <a
+            href={dataUrl}
+            download={`teka-art-${Date.now()}.png`}
+            className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10"
+            aria-label="دانلود تصویر"
+          >
+            <Download className="size-3.5" />
+            دانلود
+          </a>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+/* ---------- 🎨 کارت متحرک نقاشی در حال ساخت (جایگزین نقطه‌های تایپ برای تصویر) ---------- */
+const PAINTING_PHRASES = [
+  'دارم طرح رو می‌زنم… ✏️',
+  'رنگ می‌زنم… 🎨',
+  'دارم جزئیات می‌ندازم… 🔍',
+  'نور و سایه‌ها… 🌗',
+  'آخرین دست‌کاری‌ها… ✨',
+]
+
+export function PaintingPlaceholder() {
+  const [i, setI] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setI((v) => (v + 1) % PAINTING_PHRASES.length), 2600)
+    return () => clearInterval(t)
+  }, [])
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={SPRING}
+      className="flex items-start gap-2"
+      aria-live="polite"
+    >
+      <TekaAvatar />
+      <div className="teka-img-frame w-full max-w-sm overflow-hidden">
+        <div className="relative h-52 w-full md:h-60">
+          <div className="teka-shimmer absolute inset-0" />
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+            <motion.span
+              className="text-4xl drop-shadow-lg"
+              animate={{ rotate: [0, -14, 12, 0], y: [0, -7, 0, -4, 0] }}
+              transition={{ repeat: Infinity, duration: 2.4, ease: 'easeInOut' }}
+            >
+              🎨
+            </motion.span>
+            <AnimatePresence mode="wait">
+              <motion.span
+                key={i}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.25 }}
+                className="text-xs font-medium text-muted-foreground"
+              >
+                {PAINTING_PHRASES[i]}
+              </motion.span>
+            </AnimatePresence>
+            <div className="h-1.5 w-44 overflow-hidden rounded-full bg-muted/60">
+              <motion.div
+                className="h-full w-1/3 rounded-full bg-primary"
+                animate={{ x: ['-110%', '330%'] }}
+                transition={{ repeat: Infinity, duration: 1.5, ease: 'easeInOut' }}
+              />
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center justify-between bg-background/70 px-3 py-2 backdrop-blur">
+          <span className="text-[11px] font-medium text-muted-foreground">
+            🎨 تکا داره نقاشی می‌زنه…
+          </span>
+          <span className="text-[11px] text-muted-foreground">همین‌جا میاد، نرو جایی! 😉</span>
+        </div>
       </div>
     </motion.div>
   )
@@ -176,6 +279,7 @@ type BubbleProps = {
   onCopy: (text: string) => void
   onSpeak: (message: ChatMessage) => void
   onRegenerate: () => void
+  onRedraw?: () => void
   speakingId: string | null
   speakingLoadingId: string | null
 }
@@ -236,6 +340,7 @@ export function MessageBubble({
   onCopy,
   onSpeak,
   onRegenerate,
+  onRedraw,
   speakingId,
   speakingLoadingId,
 }: BubbleProps) {
@@ -288,7 +393,7 @@ export function MessageBubble({
       >
         <TekaAvatar />
         <div className="min-w-0 max-w-[85%] md:max-w-[75%]">
-          <ImageMessage content={message.content} />
+          <ImageMessage content={message.content} onRedraw={onRedraw} />
         </div>
       </motion.div>
     )
