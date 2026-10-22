@@ -20,6 +20,11 @@ import { TekaSidebar } from '@/components/chat/sidebar'
 import { ChatInput } from '@/components/chat/chat-input'
 import { EmptyState, MessageBubble, TypingIndicator } from '@/components/chat/message-list'
 import type { ChatMessage, ConversationSummary } from '@/components/chat/types'
+import type { PendingFile } from '@/components/chat/chat-input'
+
+/* مارکرهای محتوا (باید با بک‌اند سینک باشه؛ teka.ts سمت سروره و اینجا ایمپورت نمی‌شه) */
+const MARKER_UIMG = 'TEKA_UIMG::'
+const MARKER_FILE = 'TEKA_FILE::'
 
 export default function TekaPage() {
   const { toast } = useToast()
@@ -34,6 +39,7 @@ export default function TekaPage() {
   const [sending, setSending] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
   const [imageBusy, setImageBusy] = useState(false)
+  const [visionBusy, setVisionBusy] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [input, setInput] = useState('')
   const [power, setPower] = useState(false)
@@ -281,7 +287,7 @@ export default function TekaPage() {
   // ---------- ارسال پیام ----------
   const send = useCallback(
     async (text: string) => {
-      if (sending || regenerating || imageBusy) return
+      if (sending || regenerating || imageBusy || visionBusy) return
       const content = text.trim()
       if (!content) return
 
@@ -327,13 +333,13 @@ export default function TekaPage() {
         setSending(false)
       }
     },
-    [sending, regenerating, imageBusy, power, bumpConversation, toast, stopSpeaking]
+    [sending, regenerating, imageBusy, visionBusy, power, bumpConversation, toast, stopSpeaking]
   )
 
   // ---------- ساخت تصویر ----------
   const sendImage = useCallback(
     async (prompt: string) => {
-      if (sending || regenerating || imageBusy) return
+      if (sending || regenerating || imageBusy || visionBusy) return
       const content = prompt.trim()
       if (!content) return
 
@@ -373,12 +379,117 @@ export default function TekaPage() {
         setImageBusy(false)
       }
     },
-    [sending, regenerating, imageBusy, bumpConversation, toast, stopSpeaking]
+    [sending, regenerating, imageBusy, visionBusy, bumpConversation, toast, stopSpeaking]
+  )
+
+  // ---------- تحلیل عکس کاربر (چشم ماشینی تکا) ----------
+  const sendVision = useCallback(
+    async (imageDataUrl: string, question: string) => {
+      if (sending || regenerating || imageBusy || visionBusy) return
+
+      stopSpeaking()
+      const usedConvId = activeIdRef.current
+      const tempId = `local-uimg-${Date.now()}`
+      const localContent = `${MARKER_UIMG}${imageDataUrl}\n${question}`
+
+      setMessages((m) => [...m, { id: tempId, role: 'user', content: localContent }])
+      setVisionBusy(true)
+
+      try {
+        const res = await fetch('/api/vision', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image: imageDataUrl,
+            question,
+            conversationId: usedConvId,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) {
+          throw new Error(data?.error || 'تحلیل عکس نشد!')
+        }
+
+        if (activeIdRef.current === usedConvId) {
+          setMessages((m) => [...m, data.reply])
+          if (autoSpeakRef.current) {
+            speakRef.current?.(data.reply)
+          }
+        }
+        setActiveId(data.conversationId)
+        bumpConversation(data.conversationId, data.title)
+      } catch (err) {
+        setMessages((m) => m.filter((x) => x.id !== tempId))
+        if (question) setInput(question)
+        toast({
+          title: 'اووپس!',
+          description: err instanceof Error ? err.message : 'تحلیل عکس قاطی شد!',
+          variant: 'destructive',
+        })
+      } finally {
+        setVisionBusy(false)
+      }
+    },
+    [sending, regenerating, imageBusy, visionBusy, bumpConversation, toast, stopSpeaking]
+  )
+
+  // ---------- آنالیز فایل/سند ----------
+  const sendFile = useCallback(
+    async (file: PendingFile, question: string) => {
+      if (sending || regenerating || imageBusy || visionBusy) return
+
+      stopSpeaking()
+      const usedConvId = activeIdRef.current
+      const tempId = `local-file-${Date.now()}`
+      const localContent = `${MARKER_FILE}${file.name}::${file.size}::${question}`
+
+      setMessages((m) => [...m, { id: tempId, role: 'user', content: localContent }])
+      setVisionBusy(true)
+
+      try {
+        const res = await fetch('/api/file', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: file.name,
+            mime: file.mime,
+            dataUrl: file.dataUrl,
+            question,
+            conversationId: usedConvId,
+            power,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) {
+          throw new Error(data?.error || 'آنالیز فایل نشد!')
+        }
+
+        if (activeIdRef.current === usedConvId) {
+          setMessages((m) => [...m, data.reply])
+          if (autoSpeakRef.current) {
+            speakRef.current?.(data.reply)
+          }
+        }
+        setActiveId(data.conversationId)
+        bumpConversation(data.conversationId, data.title)
+      } catch (err) {
+        setMessages((m) => m.filter((x) => x.id !== tempId))
+        if (question) setInput(question)
+        toast({
+          title: 'اووپس!',
+          description: err instanceof Error ? err.message : 'آنالیز فایل قاطی شد!',
+          variant: 'destructive',
+        })
+      } finally {
+        setVisionBusy(false)
+      }
+    },
+    [sending, regenerating, imageBusy, visionBusy, power, bumpConversation, toast, stopSpeaking]
   )
 
   // ---------- دوباره جواب بده ----------
   const regenerate = useCallback(async () => {
-    if (sending || regenerating || imageBusy || !activeIdRef.current) return
+    if (sending || regenerating || imageBusy || visionBusy || !activeIdRef.current) return
     stopSpeaking()
     setRegenerating(true)
     try {
@@ -464,7 +575,7 @@ export default function TekaPage() {
     return null
   }, [messages])
 
-  const busy = sending || regenerating || imageBusy
+  const busy = sending || regenerating || imageBusy || visionBusy
 
   // ستاره‌های پس‌زمینه (ثابت برای جلوگیری از خطای hydration)
   const stars = useMemo(
@@ -594,7 +705,7 @@ export default function TekaPage() {
             size="icon"
             onClick={toggleTheme}
             className="text-muted-foreground"
-            aria-label={theme === 'dark' ? 'تم روشن' : 'تم تیره'}
+            aria-label={mounted && theme === 'dark' ? 'تم روشن' : 'تم تیره'}
             title="تغییر تم"
           >
             {mounted && theme === 'dark' ? <Sun className="size-4.5" /> : <Moon className="size-4.5" />}
@@ -640,7 +751,7 @@ export default function TekaPage() {
                       speakingLoadingId={speakingLoadingId}
                     />
                   ))}
-                {busy && <TypingIndicator power={power} painting={imageBusy} />}
+                {busy && <TypingIndicator power={power} painting={imageBusy} analyzing={visionBusy} />}
               </div>
             )}
             <div ref={bottomRef} />
@@ -674,7 +785,10 @@ export default function TekaPage() {
           onChange={setInput}
           onSend={send}
           onSendImage={sendImage}
+          onSendVision={sendVision}
+          onSendFile={sendFile}
           sending={busy}
+          analyzing={visionBusy}
           power={power}
         />
       </div>

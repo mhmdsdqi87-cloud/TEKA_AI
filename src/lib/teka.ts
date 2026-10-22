@@ -63,6 +63,36 @@ ${
 
 export type ChatMsg = { role: 'user' | 'assistant'; content: string }
 
+/* ---------- مارکرهای محتوای خاص ---------- */
+export const MARKER_IMG = 'TEKA_IMG::' // عکس ساخته‌شدهٔ تکا (data URL)
+export const MARKER_UIMG = 'TEKA_UIMG::' // عکسی که کاربر فرستاده + سؤالش
+export const MARKER_FILE = 'TEKA_FILE::' // فایلی که کاربر فرستاده: name::size::سؤال
+
+/**
+ * ⚠️ رفع باگ: دادهٔ خام (base64 عکس‌ها) نباید هیچ‌وقت وارد کانتکست مدل بشه
+ * وگرنه هزاران توکن هدر می‌ره و جواب خراب می‌شه.
+ * این تابع مارکرها رو به متن ساده و کوتاه تبدیل می‌کنه.
+ */
+export function plainForModel(content: string): string {
+  if (content.startsWith(MARKER_IMG)) {
+    return '[تکا اینجا یه عکس براش کشید 🎨]'
+  }
+  if (content.startsWith(MARKER_UIMG)) {
+    const rest = content.slice(MARKER_UIMG.length)
+    const nl = rest.indexOf('\n')
+    const question = (nl >= 0 ? rest.slice(nl + 1) : '').trim()
+    return `[کاربر یه عکس فرستاد${question ? ` و گفت: ${truncate(question, 200)}` : ''}]`
+  }
+  if (content.startsWith(MARKER_FILE)) {
+    const rest = content.slice(MARKER_FILE.length)
+    const parts = rest.split('::')
+    const name = (parts[0] ?? 'فایل').trim()
+    const question = parts.slice(2).join('::').trim()
+    return `[کاربر فایل «${name}» رو فرستاد${question ? ` و گفت: ${truncate(question, 200)}` : ''}]`
+  }
+  return content
+}
+
 function truncate(text: string, max: number): string {
   const clean = text.replace(/\s+/g, ' ').trim()
   return clean.length > max ? clean.slice(0, max) + '…' : clean
@@ -103,7 +133,7 @@ export async function buildMemoryText(currentConversationId: string | null): Pro
       const who = m.role === 'user' ? 'کاربر' : 'تکا'
       const title = m.conversation?.title ? ` «${truncate(m.conversation.title, 60)}»` : ''
       const date = faDate(m.createdAt)
-      return `- (${date} - چت${title}) ${who}: ${truncate(m.content, MEMORY_SNIPPET)}`
+      return `- (${date} - چت${title}) ${who}: ${truncate(plainForModel(m.content), MEMORY_SNIPPET)}`
     })
 
     return [
@@ -128,7 +158,10 @@ export async function loadHistory(conversationId: string): Promise<ChatMsg[]> {
     .filter((r) => r.role === 'user' || r.role === 'assistant')
     .map((r) => ({
       role: r.role as 'user' | 'assistant',
-      content: r.role === 'assistant' ? sanitizeReply(r.content) : r.content,
+      // مارکرهای عکس/فایل به متن ساده تبدیل می‌شن تا base64 وارد کانتکست مدل نشه
+      content: plainForModel(
+        r.role === 'assistant' ? sanitizeReply(r.content) : r.content
+      ),
     }))
 }
 

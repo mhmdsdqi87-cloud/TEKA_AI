@@ -8,6 +8,7 @@ import {
   Code2,
   Copy,
   Download,
+  FileText,
   Laugh,
   Lightbulb,
   RefreshCw,
@@ -18,8 +19,11 @@ import {
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from './types'
+import { formatFileSize } from '@/lib/media'
 
 const IMAGE_MARKER = 'TEKA_IMG::'
+const MARKER_UIMG = 'TEKA_UIMG::'
+const MARKER_FILE = 'TEKA_FILE::'
 
 const ALL_SUGGESTIONS: { icon: React.ElementType; text: string }[] = [
   { icon: Sparkles, text: 'سلام تکا! خودتو معرفی کن 🙂' },
@@ -44,10 +48,17 @@ const TYPING_PHRASES = [
 
 const SPRING = { type: 'spring' as const, stiffness: 340, damping: 28 }
 
-function shuffle<T>(arr: T[]): T[] {
+/**
+ * شافل با seed ثابت (بر اساس روز)
+ * ⚠️ رفع باگ hydration: با Math.random() سرور و کلاینت ترتیب متفاوت می‌ساختن
+ * و ریکت خطای hydration mismatch می‌داد. الان روزانه ثابته.
+ */
+function dailyShuffle<T>(arr: T[]): T[] {
   const a = [...arr]
+  let seed = Math.floor(Date.now() / 86_400_000) // ایندکس روز UTC
   for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
+    seed = (seed * 9301 + 49297) % 233280
+    const j = Math.floor((seed / 233280) * (i + 1))
     ;[a[i], a[j]] = [a[j], a[i]]
   }
   return a
@@ -72,17 +83,19 @@ function TekaAvatar({ size = 'size-8' }: { size?: string }) {
 export function TypingIndicator({
   power,
   painting,
+  analyzing,
 }: {
   power?: boolean
   painting?: boolean
+  analyzing?: boolean
 }) {
   const [phraseIdx, setPhraseIdx] = useState(0)
 
   useEffect(() => {
-    if (painting) return
+    if (painting || analyzing) return
     const t = setInterval(() => setPhraseIdx((i) => (i + 1) % TYPING_PHRASES.length), 2000)
     return () => clearInterval(t)
-  }, [painting])
+  }, [painting, analyzing])
 
   return (
     <motion.div
@@ -111,9 +124,11 @@ export function TypingIndicator({
           >
             {painting
               ? '🎨 داره نقاشی می‌کشه…'
-              : power
-                ? '⚡ دارم عمیق فکر می‌کنم…'
-                : TYPING_PHRASES[phraseIdx]}
+              : analyzing
+                ? '🔍 دارم عکس/فایلت رو دقیق بررسی می‌کنم…'
+                : power
+                  ? '⚡ دارم عمیق فکر می‌کنم…'
+                  : TYPING_PHRASES[phraseIdx]}
           </motion.span>
         </AnimatePresence>
       </div>
@@ -165,6 +180,56 @@ type BubbleProps = {
   speakingLoadingId: string | null
 }
 
+/* ---------- تجزیهٔ پیام کاربر (عکس/فایل پیوست) ---------- */
+type ParsedUser = {
+  imageUrl?: string
+  file?: { name: string; size: number }
+  question: string
+}
+
+function parseUserContent(content: string): ParsedUser {
+  if (content.startsWith(MARKER_UIMG)) {
+    const rest = content.slice(MARKER_UIMG.length)
+    const nl = rest.indexOf('\n')
+    return {
+      imageUrl: nl >= 0 ? rest.slice(0, nl) : rest,
+      question: nl >= 0 ? rest.slice(nl + 1).trim() : '',
+    }
+  }
+  if (content.startsWith(MARKER_FILE)) {
+    const rest = content.slice(MARKER_FILE.length)
+    const parts = rest.split('::')
+    const size = Number.parseInt(parts[1] ?? '0', 10)
+    return {
+      file: { name: parts[0] || 'فایل', size: Number.isFinite(size) ? size : 0 },
+      question: parts.slice(2).join('::').trim(),
+    }
+  }
+  return { question: content }
+}
+
+/* ---------- چیپ فایل پیوست کاربر ---------- */
+function UserFileChip({ name, size }: { name: string; size: number }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={SPRING}
+      className="teka-glass flex items-center gap-2.5 rounded-2xl px-3 py-2"
+    >
+      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary ring-1 ring-primary/30">
+        <FileText className="size-5" />
+      </span>
+      <div className="min-w-0 max-w-[180px]">
+        <p className="truncate text-xs font-semibold" dir="ltr">
+          {name}
+        </p>
+        <p className="text-[10px] text-muted-foreground">{formatFileSize(size)} • سند</p>
+      </div>
+    </motion.div>
+  )
+}
+
 export function MessageBubble({
   message,
   isLastAssistant,
@@ -177,6 +242,7 @@ export function MessageBubble({
   const [copied, setCopied] = useState(false)
 
   if (message.role === 'user') {
+    const parsed = parseUserContent(message.content)
     return (
       <motion.div
         initial={{ opacity: 0, y: 14, scale: 0.97 }}
@@ -184,8 +250,28 @@ export function MessageBubble({
         transition={SPRING}
         className="flex justify-end"
       >
-        <div className="max-w-[85%] rounded-2xl rounded-tl-md bg-gradient-to-tl from-primary to-primary/80 px-4 py-3 text-[15px] leading-7 text-primary-foreground shadow-lg shadow-primary/25 md:max-w-[70%]">
-          <p className="whitespace-pre-wrap break-words">{message.content}</p>
+        <div className="flex max-w-[85%] flex-col items-end gap-1.5 md:max-w-[70%]">
+          {/* عکس ارسالی کاربر */}
+          {parsed.imageUrl && (
+            <div className="teka-img-frame w-full max-w-[280px]">
+              <img
+                src={parsed.imageUrl}
+                alt="عکسی که فرستادی"
+                className="block w-full"
+                loading="lazy"
+              />
+            </div>
+          )}
+          {/* فایل پیوست کاربر */}
+          {parsed.file && (
+            <UserFileChip name={parsed.file.name} size={parsed.file.size} />
+          )}
+          {/* متن پیام */}
+          {parsed.question && (
+            <div className="rounded-2xl rounded-tl-md bg-gradient-to-tl from-primary to-primary/80 px-4 py-3 text-[15px] leading-7 text-primary-foreground shadow-lg shadow-primary/25">
+              <p className="whitespace-pre-wrap break-words">{parsed.question}</p>
+            </div>
+          )}
         </div>
       </motion.div>
     )
@@ -273,7 +359,7 @@ export function EmptyState({
   onSuggestion: (text: string) => void
   power: boolean
 }) {
-  const chips = useMemo(() => shuffle(ALL_SUGGESTIONS).slice(0, 4), [])
+  const chips = useMemo(() => dailyShuffle(ALL_SUGGESTIONS).slice(0, 4), [])
 
   return (
     <motion.div
@@ -303,18 +389,19 @@ export function EmptyState({
         هوش مصنوعی خودمونیِ فارسی‌زبان — ساختهٔ{' '}
         <span className="font-semibold text-primary">محمد صادقی</span> 🙌
         <br />
-        باهات حرف می‌زنم، برات عکس می‌سازم و همه‌چی رو یادم می‌مونه 🧠
+        حرف می‌زنم، عکس دقیق می‌کشم، عکست رو می‌بینم، فایلت رو آنالیز می‌کنم 🧠
       </p>
 
       {/* امکانات */}
       <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
         {[
-          { icon: '🎨', label: 'تصویرساز هوشمند' },
+          { icon: '🎨', label: 'تصویرساز دقیق' },
+          { icon: '📷', label: 'عکس بفرست تا ببینم' },
+          { icon: '📄', label: 'فایل و PDF آنالیز کنم' },
           { icon: '🎤', label: 'با صدا بگو' },
           { icon: '🔊', label: 'بلند بخون' },
           { icon: '🧠', label: 'حافظهٔ دائمی' },
           { icon: '⚡', label: power ? 'حالت قدرتمند روشنه' : 'حالت قدرتمند' },
-          { icon: '🏆', label: 'سطح‌بندی خفن' },
         ].map((f, i) => (
           <motion.span
             key={f.label}

@@ -1,33 +1,55 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   Feather,
+  FileText,
   ImagePlus,
   Laugh,
   Lightbulb,
   Loader2,
   Mic,
+  Paperclip,
   Puzzle,
   SendHorizonal,
   Sparkles,
   Square,
   Wand2,
   Coffee,
+  X,
+  Camera,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { useToast } from '@/hooks/use-toast'
 import { TekaRecorder, blobToDataUrl } from '@/lib/audio-recorder'
+import {
+  ANALYZABLE_ACCEPT,
+  formatFileSize,
+  readFileAsDataUrl,
+  resizeImageToDataUrl,
+} from '@/lib/media'
 
 const MAX_RECORD_MS = 60_000
+const MAX_FILE_SIZE = 10 * 1024 * 1024 // ۱۰ مگابایت
+
+export type PendingFile = { name: string; mime: string; size: number; dataUrl: string }
 
 type ChatInputProps = {
   value: string
   onChange: (v: string) => void
   onSend: (text: string) => void
   onSendImage: (text: string) => void
+  onSendVision: (imageDataUrl: string, question: string) => void
+  onSendFile: (file: PendingFile, question: string) => void
   sending: boolean
+  analyzing: boolean
   power: boolean
 }
 
@@ -47,12 +69,24 @@ function formatSeconds(total: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-export function ChatInput({ value, onChange, onSend, onSendImage, sending, power }: ChatInputProps) {
+export function ChatInput({
+  value,
+  onChange,
+  onSend,
+  onSendImage,
+  onSendVision,
+  onSendFile,
+  sending,
+  analyzing,
+  power,
+}: ChatInputProps) {
   const { toast } = useToast()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const recorderRef = useRef<TekaRecorder | null>(null)
   const maxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const tickTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const valueRef = useRef(value)
   valueRef.current = value
 
@@ -60,6 +94,8 @@ export function ChatInput({ value, onChange, onSend, onSendImage, sending, power
   const [recording, setRecording] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
   const [recordSeconds, setRecordSeconds] = useState(0)
+  const [pendingImage, setPendingImage] = useState<string | null>(null)
+  const [pendingFile, setPendingFile] = useState<PendingFile | null>(null)
 
   const clearTimers = useCallback(() => {
     if (maxTimerRef.current) {
@@ -87,19 +123,107 @@ export function ChatInput({ value, onChange, onSend, onSendImage, sending, power
     el.style.height = Math.min(el.scrollHeight, 150) + 'px'
   }
 
+  const clearAll = useCallback(() => {
+    onChange('')
+    setPendingImage(null)
+    setPendingFile(null)
+    requestAnimationFrame(() => {
+      if (textareaRef.current) textareaRef.current.style.height = 'auto'
+    })
+  }, [onChange])
+
   const submit = () => {
+    if (sending || recording || transcribing) return
     const text = value.trim()
-    if (!text || sending || recording || transcribing) return
+
+    if (pendingFile) {
+      onSendFile(pendingFile, text)
+      clearAll()
+      return
+    }
+    if (pendingImage) {
+      onSendVision(pendingImage, text)
+      clearAll()
+      return
+    }
+
+    if (!text) return
     if (imageMode) {
       onSendImage(text)
     } else {
       onSend(text)
     }
-    onChange('')
-    requestAnimationFrame(() => {
-      if (textareaRef.current) textareaRef.current.style.height = 'auto'
-    })
+    clearAll()
   }
+
+  // ---------- پیوست عکس (برای تحلیل) ----------
+  const pickImage = useCallback(
+    async (file: File | undefined) => {
+      if (!file) return
+      if (!file.type.startsWith('image/')) {
+        toast({
+          title: 'این عکس نیست! 📷',
+          description: 'یه فایل JPG یا PNG انتخاب کن داداش.',
+          variant: 'destructive',
+        })
+        return
+      }
+      if (file.size > 15 * 1024 * 1024) {
+        toast({
+          title: 'عکس خیلی حجیمه! 📷',
+          description: 'یه عکس سبک‌تر (زیر ۱۵ مگ) انتخاب کن.',
+          variant: 'destructive',
+        })
+        return
+      }
+      try {
+        const dataUrl = await resizeImageToDataUrl(file)
+        setPendingFile(null)
+        setPendingImage(dataUrl)
+        requestAnimationFrame(resize)
+      } catch {
+        toast({
+          title: 'عکس خونده نشد!',
+          description: 'یه بار دیگه امتحان کن داداش.',
+          variant: 'destructive',
+        })
+      }
+    },
+    [toast]
+  )
+
+  // ---------- پیوست فایل (برای آنالیز) ----------
+  const pickFile = useCallback(
+    async (file: File | undefined) => {
+      if (!file) return
+      if (file.size > MAX_FILE_SIZE) {
+        toast({
+          title: 'فایل خیلی حجیمه! 📄',
+          description: `تا ۱۰ مگابایت پشتیبانی می‌شه؛ این ${formatFileSize(file.size)}ـه!`,
+          variant: 'destructive',
+        })
+        return
+      }
+      try {
+        const dataUrl = await readFileAsDataUrl(file)
+        setPendingImage(null)
+        setPendingFile({
+          name: file.name,
+          mime: file.type || 'application/octet-stream',
+          size: file.size,
+          dataUrl,
+        })
+        requestAnimationFrame(resize)
+      } catch {
+        toast({
+          title: 'فایل خونده نشد!',
+          description: 'یه بار دیگه امتحان کن داداش.',
+          variant: 'destructive',
+        })
+      }
+    },
+    [toast]
+  )
 
   // ---------- میکروفن ----------
   const stopAndTranscribe = useCallback(async () => {
@@ -167,19 +291,26 @@ export function ChatInput({ value, onChange, onSend, onSendImage, sending, power
     }
   }, [recording, stopAndTranscribe, toast, transcribing])
 
+  const hasAttachment = !!pendingImage || !!pendingFile
   const busy = sending || recording || transcribing
 
   const placeholder = recording
     ? `دارم گوش می‌دم… 🎤 (${formatSeconds(recordSeconds)})`
     : transcribing
       ? 'دارم صدات رو تبدیل می‌کنم… ⏳'
-      : imageMode
-        ? 'چی برام بکشم داداش؟ 🎨 مثلا: یه روباه فضایی'
-        : sending
-          ? power
-            ? 'تکا داره عمیق فکر می‌کنه… ⚡🤔'
-            : 'تکا داره فکر می‌کنه… 🤔'
-          : 'پیامت رو بنویس یا بگو تا بنویسم… 🎤'
+      : analyzing
+        ? 'تکا داره بررسی می‌کنه… 🔍'
+        : pendingImage
+          ? 'بگو این عکس چیه یا چه سوالی ازش داری… 📷'
+          : pendingFile
+            ? 'بگو فایلت رو چطوری تحلیل کنم… 📄'
+            : imageMode
+              ? 'چی برام بکشم داداش؟ 🎨 مثلا: یه روباه فضایی'
+              : sending
+                ? power
+                  ? 'تکا داره عمیق فکر می‌کنه… ⚡🤔'
+                  : 'تکا داره فکر می‌کنه… 🤔'
+                : 'پیامت رو بنویس یا بگو تا بنویسم… 🎤'
 
   return (
     <motion.div
@@ -190,7 +321,7 @@ export function ChatInput({ value, onChange, onSend, onSendImage, sending, power
     >
       <div className="mx-auto max-w-3xl">
         {/* ابزارک‌های سریع */}
-        {!recording && !transcribing && (
+        {!recording && !transcribing && !hasAttachment && (
           <div
             className="teka-scroll mb-2 flex gap-1.5 overflow-x-auto pb-1"
             aria-label="ابزارک‌های سریع"
@@ -210,6 +341,65 @@ export function ChatInput({ value, onChange, onSend, onSendImage, sending, power
             ))}
           </div>
         )}
+
+        {/* پیش‌نمایش پیوست‌ها */}
+        <AnimatePresence>
+          {hasAttachment && (
+            <motion.div
+              initial={{ opacity: 0, y: 8, height: 0 }}
+              animate={{ opacity: 1, y: 0, height: 'auto' }}
+              exit={{ opacity: 0, y: 8, height: 0 }}
+              className="mb-2 overflow-hidden"
+            >
+              <div className="flex items-center gap-2">
+                {pendingImage && (
+                  <div className="teka-glass relative flex items-center gap-2.5 rounded-2xl p-2 pe-3">
+                    <img
+                      src={pendingImage}
+                      alt="پیش‌نمایش عکس پیوست‌شده"
+                      className="size-12 rounded-xl object-cover ring-1 ring-primary/30"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold">عکس آمادهٔ تحلیله 👁️</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        بگو چی ببینم و بفرست!
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setPendingImage(null)}
+                      className="absolute -end-1.5 -top-1.5 flex size-6 items-center justify-center rounded-full bg-destructive text-white shadow-md transition-transform hover:scale-110"
+                      aria-label="حذف عکس پیوست"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                )}
+                {pendingFile && (
+                  <div className="teka-glass relative flex items-center gap-2.5 rounded-2xl p-2 pe-3">
+                    <span className="flex size-12 items-center justify-center rounded-xl bg-primary/15 text-primary ring-1 ring-primary/30">
+                      <FileText className="size-6" />
+                    </span>
+                    <div className="min-w-0 max-w-[220px]">
+                      <p className="truncate text-xs font-semibold" dir="ltr">
+                        {pendingFile.name}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {formatFileSize(pendingFile.size)} • آمادهٔ آنالیزه 📄
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setPendingFile(null)}
+                      className="absolute -end-1.5 -top-1.5 flex size-6 items-center justify-center rounded-full bg-destructive text-white shadow-md transition-transform hover:scale-110"
+                      aria-label="حذف فایل پیوست"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* نوار ضبط فعال */}
         {recording && (
@@ -253,6 +443,54 @@ export function ChatInput({ value, onChange, onSend, onSendImage, sending, power
             disabled={sending}
           />
 
+          {/* پیوست: عکس یا فایل */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="icon"
+                disabled={busy}
+                variant="ghost"
+                className={`size-11 shrink-0 rounded-2xl transition-transform hover:scale-105 active:scale-95 ${
+                  hasAttachment ? 'text-primary' : 'text-muted-foreground'
+                }`}
+                aria-label="پیوست عکس یا فایل"
+                title="عکس یا فایل بفرست"
+              >
+                <Paperclip className="size-5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              side="top"
+              align="end"
+              className="rounded-2xl border-primary/20 bg-card/90 backdrop-blur-xl"
+            >
+              <DropdownMenuItem
+                onClick={() => imageInputRef.current?.click()}
+                className="gap-2.5 rounded-xl py-2.5 text-sm"
+              >
+                <Camera className="size-4.5 text-primary" />
+                <div className="flex flex-col">
+                  <span className="font-semibold">📷 عکس بفرست</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    تکا عکست رو تحلیل می‌کنه
+                  </span>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => fileInputRef.current?.click()}
+                className="gap-2.5 rounded-xl py-2.5 text-sm"
+              >
+                <FileText className="size-4.5 text-primary" />
+                <div className="flex flex-col">
+                  <span className="font-semibold">📄 فایل/سند بفرست</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    PDF، Word، متن و کد رو آنالیز می‌کنه
+                  </span>
+                </div>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           {/* میکروفن */}
           <Button
             size="icon"
@@ -294,17 +532,33 @@ export function ChatInput({ value, onChange, onSend, onSendImage, sending, power
           <Button
             size="icon"
             onClick={submit}
-            disabled={sending || !value.trim() || recording || transcribing}
+            disabled={sending || (!value.trim() && !hasAttachment) || recording || transcribing}
             className="teka-shine size-11 shrink-0 rounded-2xl shadow-md shadow-primary/25 transition-transform hover:scale-105 active:scale-95"
-            aria-label={imageMode ? 'ساخت تصویر' : 'ارسال پیام'}
+            aria-label={
+              pendingImage
+                ? 'ارسال عکس برای تحلیل'
+                : pendingFile
+                  ? 'ارسال فایل برای آنالیز'
+                  : imageMode
+                    ? 'ساخت تصویر'
+                    : 'ارسال پیام'
+            }
           >
-            <SendHorizonal className="size-5 -scale-x-100" />
+            {analyzing ? (
+              <Loader2 className="size-5 animate-spin" />
+            ) : (
+              <SendHorizonal className="size-5 -scale-x-100" />
+            )}
           </Button>
         </div>
 
         <p className="mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 text-center text-[11px] text-muted-foreground">
           <span className="hidden sm:inline">Enter بفرست • Shift+Enter خط جدید •</span>
-          {imageMode ? (
+          {pendingImage ? (
+            <span className="font-semibold text-primary">📷 عکس پیوست شد — تکا می‌بینه‌ش!</span>
+          ) : pendingFile ? (
+            <span className="font-semibold text-primary">📄 فایل پیوست شد — تکا می‌خونش!</span>
+          ) : imageMode ? (
             <span className="font-semibold text-primary">🎨 حالت تصویرساز فعاله</span>
           ) : power ? (
             <span className="font-semibold text-primary">حالت قدرتمند فعاله ⚡</span>
@@ -312,6 +566,32 @@ export function ChatInput({ value, onChange, onSend, onSendImage, sending, power
             <span>تکا ممکنه اشتباه کنه؛ چک مهم کن داداش 😉</span>
           )}
         </p>
+
+        {/* اینپوت‌های مخفی فایل */}
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            void pickImage(e.target.files?.[0])
+            e.target.value = ''
+          }}
+          aria-hidden="true"
+          tabIndex={-1}
+        />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={ANALYZABLE_ACCEPT}
+          className="hidden"
+          onChange={(e) => {
+            void pickFile(e.target.files?.[0])
+            e.target.value = ''
+          }}
+          aria-hidden="true"
+          tabIndex={-1}
+        />
       </div>
     </motion.div>
   )
