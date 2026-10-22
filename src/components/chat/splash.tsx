@@ -9,6 +9,7 @@ const SPLASH_STATUS = [
   'دارم مغزمو روشن می‌کنم… 🧠',
   'حافظه‌ها لود شد! ✅',
   'نورون‌ها آتیشی شدن! 🔥',
+  'انرژی‌ها رو شارژ می‌کنم… ⚡',
   'آماده‌ام داداش! 🚀',
 ]
 
@@ -26,8 +27,10 @@ const SPLASH_STARS = [
 
 /**
  * اسپلش سینمایی ورود تکا 🌅
+ * اول کاملاً پخش می‌شه (‏~۳.۲ ثانیه)، بعد صفحه باز می‌شه.
  * روت با exit تعریف‌شده — والد با AnimatePresence ترکش رو هندل می‌کنه.
- * onDone بعد از ~۲۴۰۰ms یا با اولین کلیک/تپ/کیبورد دقیقاً یک بار صدا زده می‌شه.
+ * onDone بعد از ~۳۲۰۰ms یا با اولین کلیک/تپ/کیبورد دقیقاً یک بار صدا زده می‌شه.
+ * ⭐ initial opacity:1 → SSR هم لودش رندر می‌کنه (قبل از هیدریشن هم صفحهٔ خالی دیده نمی‌شه)
  */
 export function Splash({ onDone }: { onDone: () => void }) {
   const reduced = useReducedMotion() ?? false
@@ -40,14 +43,14 @@ export function Splash({ onDone }: { onDone: () => void }) {
     onDoneRef.current = onDone
   })
 
-  /* پایان خودکار بعد از ~۲.۴ ثانیه + رد شدن با کلیک/تپ/کیبورد — فقط یک بار */
+  /* پایان خودکار بعد از ~۳.۲ ثانیه + رد شدن با کلیک/تپ/کیبورد — فقط یک بار */
   useEffect(() => {
     const fire = () => {
       if (firedRef.current) return
       firedRef.current = true
       onDoneRef.current()
     }
-    const t = window.setTimeout(fire, 2400)
+    const t = window.setTimeout(fire, 3200)
     window.addEventListener('pointerdown', fire)
     window.addEventListener('keydown', fire)
     return () => {
@@ -70,10 +73,10 @@ export function Splash({ onDone }: { onDone: () => void }) {
     <motion.div
       className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden bg-background"
       dir="rtl"
-      initial={{ opacity: 0 }}
+      initial={{ opacity: 1 }}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0, scale: 1.12, filter: 'blur(14px)' }}
-      transition={{ duration: 0.55, ease: 'easeInOut' }}
+      exit={{ opacity: 0, scale: 1.14, filter: 'blur(16px)' }}
+      transition={{ duration: 0.65, ease: 'easeInOut' }}
       aria-label="در حال آماده‌سازی تکا"
     >
       {/* ── مینی‌آرورا: هاله‌های طلایی شناور ── */}
@@ -268,7 +271,7 @@ export function Splash({ onDone }: { onDone: () => void }) {
               className="teka-xp-bar h-full rounded-full"
               initial={{ width: '0%' }}
               animate={{ width: '100%' }}
-              transition={{ duration: 2.1, ease: 'easeInOut' }}
+              transition={{ duration: 2.9, ease: 'easeInOut' }}
             />
           </div>
           <div className="flex h-5 items-center justify-center" aria-live="polite">

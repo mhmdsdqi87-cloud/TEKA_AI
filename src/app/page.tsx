@@ -1001,27 +1001,33 @@ export default function TekaPage() {
         {showSplash && <Splash onDone={finishSplash} />}
       </AnimatePresence>
 
-      <TekaSidebar
-        conversations={conversations}
-        activeId={activeId}
-        loading={loadingList}
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        onSelect={openConversation}
-        onNewChat={newChat}
-        onDelete={deleteConversation}
-        bonusXp={bonusXp}
-      />
+      <div
+        className={`flex transition-opacity duration-700 ${
+          contentReady ? 'opacity-100' : 'opacity-0'
+        }`}
+      >
+        <TekaSidebar
+          conversations={conversations}
+          activeId={activeId}
+          loading={loadingList}
+          open={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          onSelect={openConversation}
+          onNewChat={newChat}
+          onDelete={deleteConversation}
+          bonusXp={bonusXp}
+        />
+      </div>
 
       <motion.div
         className="relative z-10 flex min-w-0 flex-1 flex-col"
-        initial={{ opacity: 0, y: 22, scale: 0.985, filter: 'blur(8px)' }}
+        initial={{ opacity: 0, y: 26, scale: 0.98, filter: 'blur(10px)' }}
         animate={
           contentReady
             ? { opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }
-            : { opacity: 0, y: 22, scale: 0.985, filter: 'blur(8px)' }
+            : { opacity: 0, y: 26, scale: 0.98, filter: 'blur(10px)' }
         }
-        transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+        transition={{ duration: 0.85, delay: 0.45, ease: [0.22, 1, 0.36, 1] }}
       >
         {/* هدر */}
         <header className="flex items-center gap-1.5 border-b border-border/60 bg-background/70 px-3 py-2.5 backdrop-blur-xl md:gap-2 md:px-6">
