@@ -1,0 +1,1284 @@
+     1→'use client'
+     2→
+     3→import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+     4→import { AnimatePresence, motion } from 'framer-motion'
+     5→import { useTheme } from 'next-themes'
+     6→import {
+     7→  ArrowDown,
+     8→  ChevronDown,
+     9→  Download,
+    10→  Loader2,
+    11→  LogIn,
+    12→  LogOut,
+    13→  Menu,
+    14→  Moon,
+    15→  Sun,
+    16→  Volume2,
+    17→  VolumeX,
+    18→  Zap,
+    19→} from 'lucide-react'
+    20→import { Button } from '@/components/ui/button'
+    21→import {
+    22→  DropdownMenu,
+    23→  DropdownMenuContent,
+    24→  DropdownMenuItem,
+    25→  DropdownMenuLabel,
+    26→  DropdownMenuSeparator,
+    27→  DropdownMenuTrigger,
+    28→} from '@/components/ui/dropdown-menu'
+    29→import { useToast } from '@/hooks/use-toast'
+    30→import { TekaSidebar } from '@/components/chat/sidebar'
+    31→import { ChatInput } from '@/components/chat/chat-input'
+    32→import {
+    33→  EmptyState,
+    34→  MessageBubble,
+    35→  PaintingPlaceholder,
+    36→  TypingIndicator,
+    37→} from '@/components/chat/message-list'
+    38→import { AuthDialog, type TekaUser } from '@/components/chat/auth-dialog'
+    39→import {
+    40→  AchievementsChip,
+    41→  LevelUpOverlay,
+    42→  QuestsChip,
+    43→  StreakChip,
+    44→} from '@/components/chat/gamification'
+    45→import { ConfettiBurst } from '@/components/chat/confetti'
+    46→import {
+    47→  addBonusXp,
+    48→  loadBonusXp,
+    49→  loadMood,
+    50→  loadQuests,
+    51→  loadSeenLevel,
+    52→  recordActivity,
+    53→  saveMood,
+    54→  saveSeenLevel,
+    55→  updateStreakOnVisit,
+    56→  type Quest,
+    57→  type QuestEvent,
+    58→  type TekaMoodClient,
+    59→} from '@/lib/game'
+    60→import type { ChatMessage, ConversationSummary } from '@/components/chat/types'
+    61→import type { PendingFile } from '@/components/chat/chat-input'
+    62→
+    63→/* مارکرهای محتوا (باید با بک‌اند سینک باشه؛ teka.ts سمت سروره و اینجا ایمپورت نمی‌شه) */
+    64→const MARKER_UIMG = 'TEKA_UIMG::'
+    65→const MARKER_FILE = 'TEKA_FILE::'
+    66→
+    67→/* حالت‌های تکا 🎭 (کپی کلاینتی — teka.ts سمت سروره) */
+    68→const MOOD_OPTIONS: { id: TekaMoodClient; label: string; emoji: string; desc: string }[] = [
+    69→  { id: 'normal', label: 'تکای عادی', emoji: '😎', desc: 'همون رفیق همیشگی' },
+    70→  { id: 'playful', label: 'شیطون', emoji: '😈', desc: 'شوخی و تیکهٔ بامزه' },
+    71→  { id: 'master', label: 'استاد', emoji: '🎓', desc: 'عمیق و ساختارمند' },
+    72→  { id: 'poet', label: 'شاعر', emoji: '☕', desc: 'لطیف و تصویری' },
+    73→]
+    74→
+    75→function rankFor(level: number): string {
+    76→  if (level >= 15) return 'افسانه‌ای 🔥'
+    77→  if (level >= 10) return 'استار ⚡'
+    78→  if (level >= 5) return 'حرفه‌ای 😎'
+    79→  if (level >= 3) return 'رفیق باحال 🙌'
+    80→  return 'تازه‌کار خفن 🌱'
+    81→}
+    82→
+    83→export default function TekaPage() {
+    84→  const { toast } = useToast()
+    85→  const { theme, setTheme } = useTheme()
+    86→
+    87→  const [mounted, setMounted] = useState(false)
+    88→  const [conversations, setConversations] = useState<ConversationSummary[]>([])
+    89→  const [loadingList, setLoadingList] = useState(true)
+    90→  const [activeId, setActiveId] = useState<string | null>(null)
+    91→  const [messages, setMessages] = useState<ChatMessage[]>([])
+    92→  const [loadingMessages, setLoadingMessages] = useState(false)
+    93→  const [sending, setSending] = useState(false)
+    94→  const [regenerating, setRegenerating] = useState(false)
+    95→  const [imageBusy, setImageBusy] = useState(false)
+    96→  const [visionBusy, setVisionBusy] = useState(false)
+    97→  const [sidebarOpen, setSidebarOpen] = useState(false)
+    98→  const [input, setInput] = useState('')
+    99→  const [power, setPower] = useState(true) // ⭐ پیش‌فرض: قدرتمند!
+   100→  const [autoSpeak, setAutoSpeak] = useState(false)
+   101→  const [speakingId, setSpeakingId] = useState<string | null>(null)
+   102→  const [speakingLoadingId, setSpeakingLoadingId] = useState<string | null>(null)
+   103→  const [showScrollBtn, setShowScrollBtn] = useState(false)
+   104→  const [awaitingArt, setAwaitingArt] = useState(false) // منتظر عکسِ در حال ساخت تو چت عادی
+   105→
+   106→  // 🔐 حساب کاربری
+   107→  const [user, setUser] = useState<TekaUser | null>(null)
+   108→  const [authOpen, setAuthOpen] = useState(false)
+   109→
+   110→  // 🎮 گیمیفیکیشن
+   111→  const [streakCount, setStreakCount] = useState(0)
+   112→  const [quests, setQuests] = useState<Quest[]>([])
+   113→  const [bonusXp, setBonusXp] = useState(0)
+   114→  const [confettiTrigger, setConfettiTrigger] = useState(0)
+   115→  const [levelUp, setLevelUp] = useState<{ level: number; rank: string } | null>(null)
+   116→  const [mood, setMood] = useState<TekaMoodClient>('normal')
+   117→
+   118→  const bottomRef = useRef<HTMLDivElement>(null)
+   119→  const mainRef = useRef<HTMLElement>(null)
+   120→  const auroraRef = useRef<HTMLDivElement>(null)
+   121→  const activeIdRef = useRef<string | null>(null)
+   122→  const audioRef = useRef<HTMLAudioElement | null>(null)
+   123→  const speakRef = useRef<(m: ChatMessage) => void>(() => undefined)
+   124→  const autoSpeakRef = useRef(false)
+   125→  const streakRef = useRef(0)
+   126→  const moodRef = useRef<TekaMoodClient>('normal')
+   127→  activeIdRef.current = activeId
+   128→  autoSpeakRef.current = autoSpeak
+   129→  streakRef.current = streakCount
+   130→  moodRef.current = mood
+   131→
+   132→  // ---------- mount ----------
+   133→  useEffect(() => {
+   134→    setMounted(true)
+   135→    try {
+   136→      const savedPower = localStorage.getItem('teka-power')
+   137→      setPower(savedPower === null ? true : savedPower === '1') // پیش‌فرض: قدرتمند
+   138→      setAutoSpeak(localStorage.getItem('teka-autospeak') === '1')
+   139→    } catch {
+   140→      /* noop */
+   141→    }
+   142→
+   143→    // 🎮 استریک و ماموریت‌ها و حالت
+   144→    const streak = updateStreakOnVisit()
+   145→    setStreakCount(streak.count)
+   146→    if (streak.isNewDay && streak.count > 1) {
+   147→      toast({
+   148→        title: `استریک ${new Intl.NumberFormat('fa-IR').format(streak.count)} روزه! 🔥`,
+   149→        description: 'داداش تو آتیشی! ادامه بده که نشکنه.',
+   150→      })
+   151→    }
+   152→    setQuests(loadQuests())
+   153→    setBonusXp(loadBonusXp())
+   154→    const m = loadMood()
+   155→    setMood(m)
+   156→    moodRef.current = m
+   157→
+   158→    // 🔐 کاربر فعلی + پیام‌های برگشت از گوگل
+   159→    ;(async () => {
+   160→      try {
+   161→        const params = new URLSearchParams(window.location.search)
+   162→        const authError = params.get('authError')
+   163→        const welcome = params.get('welcome')
+   164→        if (authError) {
+   165→          toast({
+   166→            title: 'ورود گوگل هنوز فعال نشد! 🔑',
+   167→            description: 'کلیدهای گوگل ست نشده؛ فعلاً با ایمیل وارد شو داداش.',
+   168→            variant: 'destructive',
+   169→          })
+   170→        }
+   171→        if (welcome) {
+   172→          toast({
+   173→            title: `خوش اومدی ${decodeURIComponent(welcome)}! 🎉`,
+   174→            description: 'با گوگل وصل شدی؛ همه‌چیز آماده‌ست!',
+   175→          })
+   176→        }
+   177→        if (authError || welcome) window.history.replaceState({}, '', '/')
+   178→
+   179→        const res = await fetch('/api/auth/me', { cache: 'no-store' })
+   180→        const data = await res.json().catch(() => null)
+   181→        if (res.ok && data?.user) setUser(data.user)
+   182→      } catch {
+   183→        /* مهمان می‌مونه */
+   184→      }
+   185→    })()
+   186→  }, [toast])
+   187→
+   188→  useEffect(() => {
+   189→    try {
+   190→      localStorage.setItem('teka-power', power ? '1' : '0')
+   191→    } catch {
+   192→      /* noop */
+   193→    }
+   194→  }, [power])
+   195→
+   196→  useEffect(() => {
+   197→    try {
+   198→      localStorage.setItem('teka-autospeak', autoSpeak ? '1' : '0')
+   199→    } catch {
+   200→      /* noop */
+   201→    }
+   202→  }, [autoSpeak])
+   203→
+   204→  // 🖱️ هالهٔ دنبال‌کنندهٔ موس
+   205→  useEffect(() => {
+   206→    const el = auroraRef.current
+   207→    if (!el) return
+   208→    let raf = 0
+   209→    const onMove = (e: PointerEvent) => {
+   210→      if (raf) return
+   211→      raf = requestAnimationFrame(() => {
+   212→        el.style.setProperty('--mx', `${((e.clientX / window.innerWidth) * 100).toFixed(2)}%`)
+   213→        el.style.setProperty('--my', `${((e.clientY / window.innerHeight) * 100).toFixed(2)}%`)
+   214→        raf = 0
+   215→      })
+   216→    }
+   217→    window.addEventListener('pointermove', onMove, { passive: true })
+   218→    return () => {
+   219→      window.removeEventListener('pointermove', onMove)
+   220→      if (raf) cancelAnimationFrame(raf)
+   221→    }
+   222→  }, [])
+   223→
+   224→  // 🎉 پایش لول‌آپ
+   225→  useEffect(() => {
+   226→    const total =
+   227→      conversations.reduce((s, c) => s + (c.messageCount ?? 0), 0) + bonusXp
+   228→    const lvl = Math.floor(total / 10) + 1
+   229→    const seen = loadSeenLevel()
+   230→    if (seen === 0) {
+   231→      saveSeenLevel(lvl)
+   232→      return
+   233→    }
+   234→    if (lvl > seen) {
+   235→      saveSeenLevel(lvl)
+   236→      setLevelUp({ level: lvl, rank: rankFor(lvl) })
+   237→      setConfettiTrigger((v) => v + 1)
+   238→    }
+   239→  }, [conversations, bonusXp])
+   240→
+   241→  // ---------- لیست گفتگوها ----------
+   242→  const loadConversations = useCallback(async () => {
+   243→    try {
+   244→      const res = await fetch('/api/conversations', { cache: 'no-store' })
+   245→      const data = await res.json()
+   246→      if (res.ok) {
+   247→        setConversations(
+   248→          (data.conversations ?? []).map(
+   249→            (c: {
+   250→              id: string
+   251→              title: string
+   252→              updatedAt: string
+   253→              _count?: { messages: number }
+   254→            }) => ({
+   255→              id: c.id,
+   256→              title: c.title,
+   257→              updatedAt: c.updatedAt,
+   258→              messageCount: c._count?.messages,
+   259→            })
+   260→          )
+   261→        )
+   262→      }
+   263→    } catch {
+   264→      // ساکت رد شو؛ خطای شبکه برای لیست مهم نیست
+   265→    } finally {
+   266→      setLoadingList(false)
+   267→    }
+   268→  }, [])
+   269→
+   270→  useEffect(() => {
+   271→    loadConversations()
+   272→  }, [loadConversations])
+   273→
+   274→  // ---------- اسکرول خودکار ----------
+   275→  useEffect(() => {
+   276→    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+   277→  }, [messages, sending, regenerating, imageBusy])
+   278→
+   279→  // ---------- Ctrl+K چت جدید ----------
+   280→  useEffect(() => {
+   281→    const onKey = (e: KeyboardEvent) => {
+   282→      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+   283→        e.preventDefault()
+   284→        setSidebarOpen(false)
+   285→        setActiveId(null)
+   286→        setMessages([])
+   287→      }
+   288→    }
+   289→    window.addEventListener('keydown', onKey)
+   290→    return () => window.removeEventListener('keydown', onKey)
+   291→  }, [])
+   292→
+   293→  const handleMainScroll = useCallback(() => {
+   294→    const el = mainRef.current
+   295→    if (!el) return
+   296→    const dist = el.scrollHeight - el.scrollTop - el.clientHeight
+   297→    setShowScrollBtn(dist > 350)
+   298→  }, [])
+   299→
+   300→  // ---------- بلند بخون (قبل از بقیه تا هیچ‌وقت TDZ پیش نیاد) ----------
+   301→  const stopSpeaking = useCallback(() => {
+   302→    if (audioRef.current) {
+   303→      audioRef.current.pause()
+   304→      audioRef.current = null
+   305→    }
+   306→    setSpeakingId(null)
+   307→    setSpeakingLoadingId(null)
+   308→  }, [])
+   309→
+   310→  const speak = useCallback(
+   311→    async (message: ChatMessage) => {
+   312→      if (speakingId === message.id) {
+   313→        stopSpeaking()
+   314→        return
+   315→      }
+   316→      stopSpeaking()
+   317→      setSpeakingLoadingId(message.id)
+   318→      try {
+   319→        const res = await fetch('/api/tts', {
+   320→          method: 'POST',
+   321→          headers: { 'Content-Type': 'application/json' },
+   322→          body: JSON.stringify({ text: message.content }),
+   323→        })
+   324→        if (!res.ok) {
+   325→          const data = await res.json().catch(() => null)
+   326→          throw new Error(data?.error || 'صدا ساخته نشد!')
+   327→        }
+   328→        const blob = await res.blob()
+   329→        const url = URL.createObjectURL(blob)
+   330→        const audio = new Audio(url)
+   331→        audioRef.current = audio
+   332→        setSpeakingLoadingId(null)
+   333→        setSpeakingId(message.id)
+   334→        audio.onended = () => {
+   335→          setSpeakingId(null)
+   336→          URL.revokeObjectURL(url)
+   337→        }
+   338→        audio.onerror = () => {
+   339→          setSpeakingId(null)
+   340→        }
+   341→        await audio.play()
+   342→      } catch (err) {
+   343→        setSpeakingLoadingId(null)
+   344→        setSpeakingId(null)
+   345→        toast({
+   346→          title: 'اوه اوه! 🙈',
+   347→          description: err instanceof Error ? err.message : 'صدام درنیومد!',
+   348→          variant: 'destructive',
+   349→        })
+   350→      }
+   351→    },
+   352→    [speakingId, stopSpeaking, toast]
+   353→  )
+   354→  speakRef.current = speak
+   355→
+   356→  // 🎮 ثبت فعالیت (ماموریت + دستاورد + XP)
+   357→  const trackEvent = useCallback(
+   358→    (event: QuestEvent) => {
+   359→      const result = recordActivity(event, streakRef.current)
+   360→      setQuests(result.quests)
+   361→      if (result.completed.length > 0) {
+   362→        for (const q of result.completed) {
+   363→          setBonusXp((prev) => {
+   364→            const next = addBonusXp(q.reward)
+   365→            return next
+   366→          })
+   367→          toast({
+   368→            title: `ماموریت کامل شد! ${q.icon}`,
+   369→            description: `${q.label} — ${new Intl.NumberFormat('fa-IR').format(q.reward)} XP گرفتی! ⚡`,
+   370→          })
+   371→        }
+   372→        setConfettiTrigger((v) => v + 1)
+   373→      }
+   374→      for (const a of result.unlocked) {
+   375→        toast({
+   376→          title: `دستاورد باز شد! ${a.icon}`,
+   377→          description: `${a.title} — ${a.desc}`,
+   378→        })
+   379→      }
+   380→      if (result.unlocked.length > 0) setConfettiTrigger((v) => v + 1)
+   381→    },
+   382→    [toast]
+   383→  )
+   384→
+   385→  // 🎭 تغییر حالت تکا
+   386→  const selectMood = useCallback(
+   387→    (m: TekaMoodClient) => {
+   388→      setMood(m)
+   389→      moodRef.current = m
+   390→      saveMood(m)
+   391→      const opt = MOOD_OPTIONS.find((o) => o.id === m)
+   392→      if (m !== 'normal') trackEvent('mood')
+   393→      toast({
+   394→        title: `${opt?.emoji} فاز تکا عوض شد!`,
+   395→        description: `الان حالت «${opt?.label}» فعاله — ${opt?.desc}`,
+   396→      })
+   397→    },
+   398→    [toast, trackEvent]
+   399→  )
+   400→
+   401→  // 🔐 لاگین موفق / خروج
+   402→  const handleAuthSuccess = useCallback(
+   403→    (u: TekaUser) => {
+   404→      setUser(u)
+   405→      setSidebarOpen(false)
+   406→      loadConversations()
+   407→      setConfettiTrigger((v) => v + 1)
+   408→    },
+   409→    [loadConversations]
+   410→  )
+   411→
+   412→  const logout = useCallback(async () => {
+   413→    try {
+   414→      await fetch('/api/auth/logout', { method: 'POST' })
+   415→    } catch {
+   416→      /* مهم نیست */
+   417→    }
+   418→    setUser(null)
+   419→    stopSpeaking()
+   420→    setActiveId(null)
+   421→    setMessages([])
+   422→    loadConversations()
+   423→    toast({ title: 'خارج شدی! 👋', description: 'هر وقت خواستی برگرد، ما همینیم!' })
+   424→  }, [loadConversations, stopSpeaking, toast])
+   425→
+   426→  // ---------- باز کردن یک گفتگو ----------
+   427→  const openConversation = useCallback(
+   428→    async (id: string) => {
+   429→      stopSpeaking()
+   430→      if (id === activeIdRef.current) {
+   431→        setSidebarOpen(false)
+   432→        return
+   433→      }
+   434→      setSidebarOpen(false)
+   435→      setActiveId(id)
+   436→      setLoadingMessages(true)
+   437→      setMessages([])
+   438→      try {
+   439→        const res = await fetch(`/api/conversations/${id}`, { cache: 'no-store' })
+   440→        const data = await res.json()
+   441→        if (res.ok && data.conversation) {
+   442→          setMessages(data.conversation.messages ?? [])
+   443→        } else {
+   444→          toast({
+   445→            title: 'آخ!',
+   446→            description: data?.error ?? 'این چت باز نشد.',
+   447→            variant: 'destructive',
+   448→          })
+   449→        }
+   450→      } catch {
+   451→        toast({
+   452→          title: 'آخ!',
+   453→          description: 'اینترنت قاطی کرد؟ دوباره امتحان کن.',
+   454→          variant: 'destructive',
+   455→        })
+   456→      } finally {
+   457→        setLoadingMessages(false)
+   458→      }
+   459→    },
+   460→    [toast]
+   461→  )
+   462→
+   463→  // ---------- چت جدید ----------
+   464→  const newChat = useCallback(() => {
+   465→    stopSpeaking()
+   466→    setSidebarOpen(false)
+   467→    setActiveId(null)
+   468→    setMessages([])
+   469→  }, [])
+   470→
+   471→  // ---------- حذف گفتگو ----------
+   472→  const deleteConversation = useCallback(
+   473→    async (id: string) => {
+   474→      setConversations((prev) => prev.filter((c) => c.id !== id))
+   475→      if (activeIdRef.current === id) {
+   476→        setActiveId(null)
+   477→        setMessages([])
+   478→      }
+   479→      try {
+   480→        await fetch(`/api/conversations/${id}`, { method: 'DELETE' })
+   481→        toast({ title: 'پاک شد! 🗑️', description: 'اون چت رفت که رفت، حالا تازه بپرسیم!' })
+   482→      } catch {
+   483→        loadConversations()
+   484→      }
+   485→    },
+   486→    [loadConversations, toast]
+   487→  )
+   488→
+   489→  // ---------- به‌روزرسانی لیست بعد از هر رد و بدل ----------
+   490→  const bumpConversation = useCallback((convId: string, title: string) => {
+   491→    const nowIso = new Date().toISOString()
+   492→    setConversations((prev) => {
+   493→      const existing = prev.find((c) => c.id === convId)
+   494→      const item: ConversationSummary = existing
+   495→        ? {
+   496→            ...existing,
+   497→            title: title || existing.title,
+   498→            updatedAt: nowIso,
+   499→            messageCount: (existing.messageCount ?? 0) + 2,
+   500→          }
+   501→        : {
+   502→            id: convId,
+   503→            title: title || 'چت جدید',
+   504→            updatedAt: nowIso,
+   505→            messageCount: 2,
+   506→          }
+   507→      return [item, ...prev.filter((c) => c.id !== convId)]
+   508→    })
+   509→  }, [])
+   510→
+   511→  /**
+   512→   * ⭐ polling آسنکرون: منتظر پیام تازه (عکس) می‌مونه تا از سرور بیاد.
+   513→   * چون نقاشی تو پس‌زمینه ساخته می‌شه و جواب POST فوریه، هیچ‌وقت
+   514→   * تایم‌اوت پروکسی نمی‌تونه وسط کار بکُشه‌ش!
+   515→   */
+   516→  const waitForNewMessages = useCallback(
+   517→    async (convId: string, maxMs = 170_000): Promise<ChatMessage[]> => {
+   518→      const sinceIso = new Date(Date.now() - 5000).toISOString()
+   519→      const deadline = Date.now() + maxMs
+   520→      while (Date.now() < deadline) {
+   521→        await new Promise((r) => setTimeout(r, 3500))
+   522→        try {
+   523→          const res = await fetch(
+   524→            `/api/conversations/${convId}?after=${encodeURIComponent(sinceIso)}`,
+   525→            { cache: 'no-store', signal: AbortSignal.timeout(20_000) }
+   526→          )
+   527→          if (!res.ok) continue
+   528→          const data = await res.json().catch(() => null)
+   529→          const fresh: ChatMessage[] = (data?.conversation?.messages ?? []).filter(
+   530→            (m: ChatMessage) => m.role === 'assistant'
+   531→          )
+   532→          if (fresh.length > 0) return fresh
+   533→        } catch {
+   534→          /* شبکه یه لحظه قاطی کرد — ادامه بده */
+   535→        }
+   536→      }
+   537→      return []
+   538→    },
+   539→    []
+   540→  )
+   541→
+   542→  // ---------- ارسال پیام ----------
+   543→  const send = useCallback(
+   544→    async (text: string) => {
+   545→      if (sending || regenerating || imageBusy || visionBusy) return
+   546→      const content = text.trim()
+   547→      if (!content) return
+   548→
+   549→      stopSpeaking()
+   550→      const usedConvId = activeIdRef.current
+   551→      const tempId = `local-${Date.now()}`
+   552→
+   553→      setMessages((m) => [...m, { id: tempId, role: 'user', content }])
+   554→      setSending(true)
+   555→
+   556→      try {
+   557→        const res = await fetch('/api/chat', {
+   558→          method: 'POST',
+   559→          headers: { 'Content-Type': 'application/json' },
+   560→          body: JSON.stringify({
+   561→            message: content,
+   562→            conversationId: usedConvId,
+   563→            power,
+   564→            mood: moodRef.current,
+   565→          }),
+   566→          signal: AbortSignal.timeout(150_000),
+   567→        })
+   568→        const data = await res.json().catch(() => null)
+   569→
+   570→        if (!res.ok) {
+   571→          throw new Error(data?.error || 'یه چیزی قاطی شد، دوباره بفرست!')
+   572→        }
+   573→
+   574→        trackEvent('chat')
+   575→        const convId: string = data.conversationId
+   576→
+   577→        // ⭐ نقاشی در پس‌زمینه داره آماده می‌شه — منتظر بمون تا عکس بیاد
+   578→        if (data.processing === true) {
+   579→          setActiveId(convId)
+   580→          setAwaitingArt(true)
+   581→          try {
+   582→            const fresh = await waitForNewMessages(convId)
+   583→            if (fresh.length > 0) {
+   584→              if (activeIdRef.current === convId) {
+   585→                setMessages((m) => [...m, ...fresh])
+   586→                if (autoSpeakRef.current && !fresh[0]?.content?.startsWith('TEKA_IMG::')) {
+   587→                  speakRef.current?.(fresh[0])
+   588→                }
+   589→              }
+   590→              bumpConversation(convId, data.title)
+   591→            } else {
+   592→              toast({
+   593→                title: 'داره آماده می‌شه! ⏳',
+   594→                description:
+   595→                  'نقاشی تو پس‌زمینه کار می‌کنه؛ چند لحظه دیگه بیا تو همین چت، اینجاست! 🎨',
+   596→              })
+   597→              bumpConversation(convId, data.title)
+   598→            }
+   599→          } finally {
+   600→            setAwaitingArt(false)
+   601→          }
+   602→          return
+   603→        }
+   604→
+   605→        if (activeIdRef.current === usedConvId) {
+   606→          setMessages((m) => [...m, data.reply])
+   607→          // خواندن خودکار جواب اگه روشنه
+   608→          if (autoSpeakRef.current && !data.reply?.content?.startsWith('TEKA_IMG::')) {
+   609→            speakRef.current?.(data.reply)
+   610→          }
+   611→        }
+   612→        setActiveId(convId)
+   613→        bumpConversation(convId, data.title)
+   614→      } catch (err) {
+   615→        setMessages((m) => m.filter((x) => x.id !== tempId))
+   616→        setInput(text)
+   617→        toast({
+   618→          title: 'اوه اوه! 🙈',
+   619→          description: err instanceof Error ? err.message : 'یه خطای ناشناخته پیش اومد!',
+   620→          variant: 'destructive',
+   621→        })
+   622→      } finally {
+   623→        setSending(false)
+   624→      }
+   625→    },
+   626→    [sending, regenerating, imageBusy, visionBusy, power, bumpConversation, toast, stopSpeaking, waitForNewMessages, trackEvent]
+   627→  )
+   628→
+   629→  // ---------- ساخت تصویر ----------
+   630→  const sendImage = useCallback(
+   631→    async (prompt: string) => {
+   632→      if (sending || regenerating || imageBusy || visionBusy) return
+   633→      const content = prompt.trim()
+   634→      if (!content) return
+   635→
+   636→      stopSpeaking()
+   637→      const usedConvId = activeIdRef.current
+   638→      const tempId = `local-img-${Date.now()}`
+   639→
+   640→      setMessages((m) => [...m, { id: tempId, role: 'user', content }])
+   641→      setImageBusy(true)
+   642→
+   643→      try {
+   644→        const res = await fetch('/api/image', {
+   645→          method: 'POST',
+   646→          headers: { 'Content-Type': 'application/json' },
+   647→          body: JSON.stringify({ prompt: content, conversationId: usedConvId }),
+   648→          signal: AbortSignal.timeout(30_000),
+   649→        })
+   650→        const data = await res.json().catch(() => null)
+   651→        if (!res.ok) {
+   652→          throw new Error(data?.error || 'تصویر ساخته نشد!')
+   653→        }
+   654→
+   655→        trackEvent('image')
+   656→        const convId: string = data.conversationId
+   657→
+   658→        // ⭐ جواب فوری اومد؛ عکس تو پس‌زمینه ساخته می‌شه — polling
+   659→        setActiveId(convId)
+   660→        setAwaitingArt(true)
+   661→        try {
+   662→          const fresh = await waitForNewMessages(convId)
+   663→          if (fresh.length > 0) {
+   664→            if (activeIdRef.current === convId) {
+   665→              setMessages((m) => [...m, ...fresh])
+   666→            }
+   667→            bumpConversation(convId, data.title)
+   668→            toast({ title: 'اینم عکسش! 🎨', description: 'تکا نقاشی زد، خوشت اومد؟' })
+   669→          } else {
+   670→            toast({
+   671→              title: 'داره آماده می‌شه! ⏳',
+   672→              description:
+   673→                'نقاشی تو پس‌زمینه کار می‌کنه؛ چند لحظه دیگه بیا تو همین چت، اینجاست! 🎨',
+   674→            })
+   675→            bumpConversation(convId, data.title)
+   676→          }
+   677→        } finally {
+   678→          setAwaitingArt(false)
+   679→        }
+   680→      } catch (err) {
+   681→        setMessages((m) => m.filter((x) => x.id !== tempId))
+   682→        setInput(content)
+   683→        toast({
+   684→          title: 'اوه اوه! 🙈',
+   685→          description: err instanceof Error ? err.message : 'تصویرسازی قاطی شد!',
+   686→          variant: 'destructive',
+   687→        })
+   688→      } finally {
+   689→        setImageBusy(false)
+   690→      }
+   691→    },
+   692→    [sending, regenerating, imageBusy, visionBusy, bumpConversation, toast, stopSpeaking, waitForNewMessages, trackEvent]
+   693→  )
+   694→
+   695→  // ---------- تحلیل عکس کاربر (چشم ماشینی تکا) ----------
+   696→  const sendVision = useCallback(
+   697→    async (imageDataUrl: string, question: string) => {
+   698→      if (sending || regenerating || imageBusy || visionBusy) return
+   699→
+   700→      stopSpeaking()
+   701→      const usedConvId = activeIdRef.current
+   702→      const tempId = `local-uimg-${Date.now()}`
+   703→      const localContent = `${MARKER_UIMG}${imageDataUrl}\n${question}`
+   704→
+   705→      setMessages((m) => [...m, { id: tempId, role: 'user', content: localContent }])
+   706→      setVisionBusy(true)
+   707→
+   708→      try {
+   709→        const res = await fetch('/api/vision', {
+   710→          method: 'POST',
+   711→          headers: { 'Content-Type': 'application/json' },
+   712→          body: JSON.stringify({
+   713→            image: imageDataUrl,
+   714→            question,
+   715→            conversationId: usedConvId,
+   716→          }),
+   717→          signal: AbortSignal.timeout(150_000),
+   718→        })
+   719→        const data = await res.json().catch(() => null)
+   720→        if (!res.ok) {
+   721→          throw new Error(data?.error || 'تحلیل عکس نشد!')
+   722→        }
+   723→
+   724→        trackEvent('vision')
+   725→        if (activeIdRef.current === usedConvId) {
+   726→          setMessages((m) => [...m, data.reply])
+   727→          if (autoSpeakRef.current) {
+   728→            speakRef.current?.(data.reply)
+   729→          }
+   730→        }
+   731→        setActiveId(data.conversationId)
+   732→        bumpConversation(data.conversationId, data.title)
+   733→      } catch (err) {
+   734→        setMessages((m) => m.filter((x) => x.id !== tempId))
+   735→        if (question) setInput(question)
+   736→        toast({
+   737→          title: 'اوه اوه! 🙈',
+   738→          description: err instanceof Error ? err.message : 'تحلیل عکس قاطی شد!',
+   739→          variant: 'destructive',
+   740→        })
+   741→      } finally {
+   742→        setVisionBusy(false)
+   743→      }
+   744→    },
+   745→    [sending, regenerating, imageBusy, visionBusy, bumpConversation, toast, stopSpeaking, trackEvent]
+   746→  )
+   747→
+   748→  // ---------- آنالیز فایل/سند ----------
+   749→  const sendFile = useCallback(
+   750→    async (file: PendingFile, question: string) => {
+   751→      if (sending || regenerating || imageBusy || visionBusy) return
+   752→
+   753→      stopSpeaking()
+   754→      const usedConvId = activeIdRef.current
+   755→      const tempId = `local-file-${Date.now()}`
+   756→      const localContent = `${MARKER_FILE}${file.name}::${file.size}::${question}`
+   757→
+   758→      setMessages((m) => [...m, { id: tempId, role: 'user', content: localContent }])
+   759→      setVisionBusy(true)
+   760→
+   761→      try {
+   762→        const res = await fetch('/api/file', {
+   763→          method: 'POST',
+   764→          headers: { 'Content-Type': 'application/json' },
+   765→          body: JSON.stringify({
+   766→            name: file.name,
+   767→            mime: file.mime,
+   768→            dataUrl: file.dataUrl,
+   769→            question,
+   770→            conversationId: usedConvId,
+   771→            power,
+   772→          }),
+   773→          signal: AbortSignal.timeout(150_000),
+   774→        })
+   775→        const data = await res.json().catch(() => null)
+   776→        if (!res.ok) {
+   777→          throw new Error(data?.error || 'آنالیز فایل نشد!')
+   778→        }
+   779→
+   780→        trackEvent('file')
+   781→        if (activeIdRef.current === usedConvId) {
+   782→          setMessages((m) => [...m, data.reply])
+   783→          if (autoSpeakRef.current) {
+   784→            speakRef.current?.(data.reply)
+   785→          }
+   786→        }
+   787→        setActiveId(data.conversationId)
+   788→        bumpConversation(data.conversationId, data.title)
+   789→      } catch (err) {
+   790→        setMessages((m) => m.filter((x) => x.id !== tempId))
+   791→        if (question) setInput(question)
+   792→        toast({
+   793→          title: 'اوه اوه! 🙈',
+   794→          description: err instanceof Error ? err.message : 'آنالیز فایل قاطی شد!',
+   795→          variant: 'destructive',
+   796→        })
+   797→      } finally {
+   798→        setVisionBusy(false)
+   799→      }
+   800→    },
+   801→    [sending, regenerating, imageBusy, visionBusy, power, bumpConversation, toast, stopSpeaking, trackEvent]
+   802→  )
+   803→
+   804→  // ---------- دوباره جواب بده ----------
+   805→  const regenerate = useCallback(async () => {
+   806→    if (sending || regenerating || imageBusy || visionBusy || !activeIdRef.current) return
+   807→    stopSpeaking()
+   808→    setRegenerating(true)
+   809→    try {
+   810→      const res = await fetch('/api/chat/regenerate', {
+   811→        method: 'POST',
+   812→        headers: { 'Content-Type': 'application/json' },
+   813→        body: JSON.stringify({ conversationId: activeIdRef.current, power, mood: moodRef.current }),
+   814→        signal: AbortSignal.timeout(150_000),
+   815→      })
+   816→      const data = await res.json().catch(() => null)
+   817→      if (!res.ok) throw new Error(data?.error || 'جواب جدید نیومد!')
+   818→
+   819→      setMessages((m) => {
+   820→        const copy = [...m]
+   821→        for (let i = copy.length - 1; i >= 0; i--) {
+   822→          if (copy[i].role === 'assistant') {
+   823→            copy[i] = data.reply
+   824→            break
+   825→          }
+   826→        }
+   827→        // اگه هیچ جوابی نبود، اضافه کن
+   828→        if (!copy.some((x) => x.role === 'assistant')) copy.push(data.reply)
+   829→        return copy
+   830→      })
+   831→    } catch (err) {
+   832→      toast({
+   833→        title: 'اوه اوه! 🙈',
+   834→        description: err instanceof Error ? err.message : 'یه خطا پیش اومد!',
+   835→        variant: 'destructive',
+   836→      })
+   837→    } finally {
+   838→      setRegenerating(false)
+   839→    }
+   840→  }, [sending, regenerating, power, toast])
+   841→
+   842→  // ---------- کپی ----------
+   843→  const copyText = useCallback(
+   844→    async (text: string) => {
+   845→      try {
+   846→        await navigator.clipboard.writeText(text)
+   847→        toast({ title: 'کپی شد! 📋', description: 'پیام تکا توی کلیپ‌بورده.' })
+   848→      } catch {
+   849→        toast({ title: 'آخ!', description: 'کپی نشد!', variant: 'destructive' })
+   850→      }
+   851→    },
+   852→    [toast]
+   853→  )
+   854→
+   855→  // ---------- خروجی چت ----------
+   856→  const exportChat = useCallback(() => {
+   857→    if (messages.length === 0) {
+   858→      toast({ title: 'چیزی برای خروجی نیست!', description: 'اول یه چی بپرس داداش 😄' })
+   859→      return
+   860→    }
+   861→    const lines = [
+   862→      `# چت تکا — هوش مصنوعی ساختهٔ محمد صادقی`,
+   863→      ``,
+   864→      ...messages.map(
+   865→        (m) => `${m.role === 'user' ? '🙋 شما' : '🤖 تکا'}:\n${m.content}\n`
+   866→      ),
+   867→    ]
+   868→    const blob = new Blob(['\uFEFF' + lines.join('\n')], {
+   869→      type: 'text/plain;charset=utf-8',
+   870→    })
+   871→    const url = URL.createObjectURL(blob)
+   872→    const a = document.createElement('a')
+   873→    a.href = url
+   874→    a.download = `teka-chat-${new Date().toISOString().slice(0, 10)}.txt`
+   875→    a.click()
+   876→    URL.revokeObjectURL(url)
+   877→    toast({ title: 'خروجی گرفتی! 📥', description: 'فایل چت دانلود شد.' })
+   878→  }, [messages, toast])
+   879→
+   880→  // ---------- تغییر تم ----------
+   881→  const toggleTheme = useCallback(() => {
+   882→    setTheme(theme === 'dark' ? 'light' : 'dark')
+   883→  }, [theme, setTheme])
+   884→
+   885→  // آخرین جواب تکا (برای دکمه دوباره بگو)
+   886→  const lastAssistantId = useMemo(() => {
+   887→    for (let i = messages.length - 1; i >= 0; i--) {
+   888→      if (messages[i].role === 'assistant') return messages[i].id
+   889→    }
+   890→    return null
+   891→  }, [messages])
+   892→
+   893→  const busy = sending || regenerating || imageBusy || visionBusy
+   894→  const currentMood = MOOD_OPTIONS.find((m) => m.id === mood) ?? MOOD_OPTIONS[0]
+   895→
+   896→  // ستاره‌های پس‌زمینه (ثابت برای جلوگیری از خطای hydration)
+   897→  const stars = useMemo(
+   898→    () => [
+   899→      { top: '12%', left: '8%', size: 3, dur: '3.6s', delay: '0s' },
+   900→      { top: '22%', left: '82%', size: 2, dur: '4.4s', delay: '0.6s' },
+   901→      { top: '38%', left: '15%', size: 2, dur: '5s', delay: '1.2s' },
+   902→      { top: '55%', left: '88%', size: 3, dur: '4s', delay: '0.3s' },
+   903→      { top: '68%', left: '6%', size: 2, dur: '4.8s', delay: '1.8s' },
+   904→      { top: '78%', left: '70%', size: 2, dur: '3.8s', delay: '0.9s' },
+   905→      { top: '30%', left: '45%', size: 2, dur: '5.2s', delay: '2.1s' },
+   906→      { top: '85%', left: '35%', size: 3, dur: '4.2s', delay: '1.5s' },
+   907→      { top: '8%', left: '55%', size: 2, dur: '4.6s', delay: '2.4s' },
+   908→      { top: '48%', left: '60%', size: 2, dur: '3.9s', delay: '0.4s' },
+   909→    ],
+   910→    []
+   911→  )
+   912→
+   913→  const comets = useMemo(
+   914→    () => [
+   915→      { top: '10%', left: '55%', dur: '11s', delay: '1.5s' },
+   916→      { top: '30%', left: '80%', dur: '13s', delay: '6s' },
+   917→      { top: '55%', left: '35%', dur: '15s', delay: '10.5s' },
+   918→    ],
+   919→    []
+   920→  )
+   921→
+   922→  return (
+   923→    <div className="relative flex h-dvh w-full overflow-hidden">
+   924→      {/* پس‌زمینهٔ aurora v2 + ستاره‌ها و شهاب‌ها */}
+   925→      <div className="teka-aurora" aria-hidden="true" ref={auroraRef}>
+   926→        <div className="teka-conic" />
+   927→        <div className="teka-noise" />
+   928→        <div className="teka-blob teka-blob-1" />
+   929→        <div className="teka-blob teka-blob-2" />
+   930→        <div className="teka-blob teka-blob-3" />
+   931→        <div className="teka-blob teka-blob-4" />
+   932→        {comets.map((c, i) => (
+   933→          <span
+   934→            key={i}
+   935→            className="teka-comet"
+   936→            style={{
+   937→              top: c.top,
+   938→              left: c.left,
+   939→              ['--cdur' as string]: c.dur,
+   940→              animationDelay: c.delay,
+   941→            }}
+   942→          />
+   943→        ))}
+   944→        {stars.map((s, i) => (
+   945→          <span
+   946→            key={i}
+   947→            className="teka-star"
+   948→            style={{
+   949→              top: s.top,
+   950→              left: s.left,
+   951→              width: s.size,
+   952→              height: s.size,
+   953→              ['--dur' as string]: s.dur,
+   954→              animationDelay: s.delay,
+   955→            }}
+   956→          />
+   957→        ))}
+   958→        <div className="teka-mouse-glow" />
+   959→      </div>
+   960→
+   961→      {/* 🎉 کانفتی */}
+   962→      <ConfettiBurst trigger={confettiTrigger} />
+   963→
+   964→      <TekaSidebar
+   965→        conversations={conversations}
+   966→        activeId={activeId}
+   967→        loading={loadingList}
+   968→        open={sidebarOpen}
+   969→        onClose={() => setSidebarOpen(false)}
+   970→        onSelect={openConversation}
+   971→        onNewChat={newChat}
+   972→        onDelete={deleteConversation}
+   973→        bonusXp={bonusXp}
+   974→      />
+   975→
+   976→      <div className="relative z-10 flex min-w-0 flex-1 flex-col">
+   977→        {/* هدر */}
+   978→        <header className="flex items-center gap-1.5 border-b border-border/60 bg-background/70 px-3 py-2.5 backdrop-blur-xl md:gap-2 md:px-6">
+   979→          <Button
+   980→            variant="ghost"
+   981→            size="icon"
+   982→            className="md:hidden"
+   983→            onClick={() => setSidebarOpen(true)}
+   984→            aria-label="باز کردن تاریخچه چت‌ها"
+   985→          >
+   986→            <Menu className="size-5" />
+   987→          </Button>
+   988→          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+   989→            <span className="relative flex size-2.5 shrink-0" aria-hidden="true">
+   990→              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60" />
+   991→              <span className="relative inline-flex size-2.5 rounded-full bg-primary" />
+   992→            </span>
+   993→            <div className="min-w-0">
+   994→              <p className="truncate text-sm font-bold leading-5">تکا</p>
+   995→              <p className="truncate text-[11px] leading-4 text-muted-foreground">
+   996→                همیشه آنلاین • حافظه داره
+   997→              </p>
+   998→            </div>
+   999→          </div>
+  1000→
+  1001→          {/* 🎮 چیپای گیمیفیکیشن (در موبایل مخفی) */}
+  1002→          {mounted && (
+  1003→            <div className="hidden items-center gap-1.5 sm:flex">
+  1004→              <StreakChip count={streakCount} />
+  1005→              <QuestsChip quests={quests} />
+  1006→              <AchievementsChip />
+  1007→            </div>
+  1008→          )}
+  1009→
+  1010→          {/* حالت قدرتمند */}
+  1011→          <Button
+  1012→            variant={power ? 'default' : 'ghost'}
+  1013→            size="sm"
+  1014→            onClick={() => setPower((p) => !p)}
+  1015→            className={`gap-1.5 rounded-full text-xs font-semibold transition-all ${
+  1016→              power ? 'shadow-lg shadow-primary/30' : 'text-muted-foreground'
+  1017→            }`}
+  1018→            aria-pressed={power}
+  1019→            title="حالت قدرتمند: جواب‌های عمیق‌تر و باهوش‌تر"
+  1020→          >
+  1021→            <Zap className={`size-4 ${power ? 'fill-current' : ''}`} />
+  1022→            <span className="hidden md:inline">{power ? 'قدرتمند' : 'عادی'}</span>
+  1023→          </Button>
+  1024→
+  1025→          {/* 🎭 حالت تکا */}
+  1026→          <DropdownMenu>
+  1027→            <DropdownMenuTrigger asChild>
+  1028→              <Button
+  1029→                variant="ghost"
+  1030→                size="sm"
+  1031→                className="gap-1 rounded-full text-xs font-semibold text-muted-foreground transition-all hover:text-foreground"
+  1032→                aria-label="حالت تکا"
+  1033→                title="فاز تکا رو عوض کن!"
+  1034→              >
+  1035→                <span className="text-base leading-none" aria-hidden="true">
+  1036→                  {currentMood.emoji}
+  1037→                </span>
+  1038→                <span className="hidden md:inline">{currentMood.label}</span>
+  1039→                <ChevronDown className="size-3.5 opacity-60" />
+  1040→              </Button>
+  1041→            </DropdownMenuTrigger>
+  1042→            <DropdownMenuContent
+  1043→              align="end"
+  1044→              className="teka-glass-strong w-56 rounded-2xl border-primary/20"
+  1045→            >
+  1046→              <DropdownMenuLabel className="text-xs text-muted-foreground">
+  1047→                فاز تکا رو انتخاب کن 🎭
+  1048→              </DropdownMenuLabel>
+  1049→              {MOOD_OPTIONS.map((m) => (
+  1050→                <DropdownMenuItem
+  1051→                  key={m.id}
+  1052→                  onClick={() => selectMood(m.id)}
+  1053→                  className={`gap-2.5 rounded-xl py-2.5 ${m.id === mood ? 'bg-primary/10' : ''}`}
+  1054→                >
+  1055→                  <span className="text-lg" aria-hidden="true">
+  1056→                    {m.emoji}
+  1057→                  </span>
+  1058→                  <div className="flex flex-col">
+  1059→                    <span className="text-sm font-semibold">
+  1060→                      {m.label}
+  1061→                      {m.id === mood ? ' ✓' : ''}
+  1062→                    </span>
+  1063→                    <span className="text-[11px] text-muted-foreground">{m.desc}</span>
+  1064→                  </div>
+  1065→                </DropdownMenuItem>
+  1066→              ))}
+  1067→            </DropdownMenuContent>
+  1068→          </DropdownMenu>
+  1069→
+  1070→          {/* خواندن خودکار */}
+  1071→          <Button
+  1072→            variant={autoSpeak ? 'default' : 'ghost'}
+  1073→            size="icon"
+  1074→            onClick={() => {
+  1075→              setAutoSpeak((v) => {
+  1076→                if (v) stopSpeaking()
+  1077→                return !v
+  1078→              })
+  1079→            }}
+  1080→            className={autoSpeak ? 'shadow-lg shadow-primary/30' : 'text-muted-foreground'}
+  1081→            aria-pressed={autoSpeak}
+  1082→            aria-label="خواندن خودکار جواب‌ها"
+  1083→            title="خودکار بلند بخون جواب‌هارو"
+  1084→          >
+  1085→            {mounted && autoSpeak ? <Volume2 className="size-4.5" /> : <VolumeX className="size-4.5" />}
+  1086→          </Button>
+  1087→
+  1088→          {/* خروجی چت */}
+  1089→          <Button
+  1090→            variant="ghost"
+  1091→            size="icon"
+  1092→            onClick={exportChat}
+  1093→            className="hidden text-muted-foreground sm:inline-flex"
+  1094→            aria-label="دانلود خروجی چت"
+  1095→            title="خروجی چت"
+  1096→          >
+  1097→            <Download className="size-4.5" />
+  1098→          </Button>
+  1099→
+  1100→          {/* تم */}
+  1101→          <Button
+  1102→            variant="ghost"
+  1103→            size="icon"
+  1104→            onClick={toggleTheme}
+  1105→            className="text-muted-foreground"
+  1106→            aria-label={mounted && theme === 'dark' ? 'تم روشن' : 'تم تیره'}
+  1107→            title="تغییر تم"
+  1108→          >
+  1109→            {mounted && theme === 'dark' ? <Sun className="size-4.5" /> : <Moon className="size-4.5" />}
+  1110→          </Button>
+  1111→
+  1112→          {/* 🔐 حساب کاربری */}
+  1113→          {mounted && user ? (
+  1114→            <DropdownMenu>
+  1115→              <DropdownMenuTrigger asChild>
+  1116→                <button
+  1117→                  className="teka-chip gap-1.5 ps-1 pe-2"
+  1118→                  aria-label="حساب کاربری"
+  1119→                  title="حساب کاربری"
+  1120→                >
+  1121→                  <span className="flex size-7 items-center justify-center overflow-hidden rounded-full bg-primary text-xs font-black text-primary-foreground ring-2 ring-primary/40">
+  1122→                    {user.image ? (
+  1123→                      <img src={user.image} alt="" className="size-full object-cover" />
+  1124→                    ) : (
+  1125→                      user.name.slice(0, 1)
+  1126→                    )}
+  1127→                  </span>
+  1128→                  <span className="hidden max-w-20 truncate text-xs font-bold md:inline">
+  1129→                    {user.name}
+  1130→                  </span>
+  1131→                  <ChevronDown className="size-3 opacity-60" />
+  1132→                </button>
+  1133→              </DropdownMenuTrigger>
+  1134→              <DropdownMenuContent
+  1135→                align="end"
+  1136→                className="teka-glass-strong w-52 rounded-2xl border-primary/20"
+  1137→              >
+  1138→                <DropdownMenuLabel>
+  1139→                  <p className="truncate text-sm font-bold">{user.name}</p>
+  1140→                  <p className="truncate text-[11px] font-normal text-muted-foreground" dir="ltr">
+  1141→                    {user.email}
+  1142→                  </p>
+  1143→                </DropdownMenuLabel>
+  1144→                <DropdownMenuSeparator />
+  1145→                <DropdownMenuItem
+  1146→                  onClick={logout}
+  1147→                  className="gap-2 rounded-xl text-destructive focus:text-destructive"
+  1148→                >
+  1149→                  <LogOut className="size-4" />
+  1150→                  خروج از حساب
+  1151→                </DropdownMenuItem>
+  1152→              </DropdownMenuContent>
+  1153→            </DropdownMenu>
+  1154→          ) : (
+  1155→            <Button
+  1156→              size="sm"
+  1157→              onClick={() => setAuthOpen(true)}
+  1158→              className="teka-shine gap-1.5 rounded-full px-3 text-xs font-bold shadow-md shadow-primary/25"
+  1159→              aria-label="ورود یا ثبت‌نام"
+  1160→            >
+  1161→              <LogIn className="size-4" />
+  1162→              <span className="hidden sm:inline">ورود / ثبت‌نام</span>
+  1163→            </Button>
+  1164→          )}
+  1165→        </header>
+  1166→
+  1167→        {/* پیام‌ها */}
+  1168→        <main
+  1169→          ref={mainRef}
+  1170→          onScroll={handleMainScroll}
+  1171→          className="teka-scroll relative flex-1 overflow-y-auto"
+  1172→          aria-label="گفتگو"
+  1173→        >
+  1174→          <div className="mx-auto max-w-3xl px-3 py-4 md:px-6">
+  1175→            {messages.length === 0 && !loadingMessages && !busy ? (
+  1176→              <EmptyState onSuggestion={send} power={power} />
+  1177→            ) : (
+  1178→              <div className="flex flex-col gap-4 pb-2">
+  1179→                {loadingMessages &&
+  1180→                  Array.from({ length: 3 }).map((_, i) => (
+  1181→                    <div
+  1182→                      key={i}
+  1183→                      className={`flex ${i % 2 ? 'justify-end' : 'justify-start'}`}
+  1184→                      aria-hidden="true"
+  1185→                    >
+  1186→                      <div className="h-10 w-2/3 animate-pulse rounded-2xl bg-muted/50" />
+  1187→                    </div>
+  1188→                  ))}
+  1189→                {!loadingMessages &&
+  1190→                  messages.map((m, idx) => {
+  1191→                    // ⭐ برای عکس‌ها پرامپت اصلی رو پیدا کن تا «دوباره بکش» کار کنه
+  1192→                    let redrawPrompt: string | undefined
+  1193→                    if (m.role === 'assistant' && m.content.startsWith('TEKA_IMG::')) {
+  1194→                      for (let j = idx - 1; j >= 0; j--) {
+  1195→                        if (messages[j].role === 'user') {
+  1196→                          redrawPrompt = messages[j].content
+  1197→                            .replace(/^🎨 درخواست تصویر:\s*/, '')
+  1198→                            .replace(/^TEKA_UIMG::.*\n?/, '')
+  1199→                            .trim()
+  1200→                          break
+  1201→                        }
+  1202→                      }
+  1203→                    }
+  1204→                    return (
+  1205→                      <MessageBubble
+  1206→                        key={m.id}
+  1207→                        message={m}
+  1208→                        isLastAssistant={m.id === lastAssistantId && !busy}
+  1209→                        onCopy={copyText}
+  1210→                        onSpeak={speak}
+  1211→                        onRegenerate={regenerate}
+  1212→                        onRedraw={
+  1213→                          redrawPrompt && !busy
+  1214→                            ? () => sendImage(redrawPrompt)
+  1215→                            : undefined
+  1216→                        }
+  1217→                        speakingId={speakingId}
+  1218→                        speakingLoadingId={speakingLoadingId}
+  1219→                      />
+  1220→                    )
+  1221→                  })}
+  1222→                {(imageBusy || awaitingArt) && <PaintingPlaceholder />}
+  1223→                {!imageBusy && !awaitingArt && busy && (
+  1224→                  <TypingIndicator power={power} analyzing={visionBusy} />
+  1225→                )}
+  1226→              </div>
+  1227→            )}
+  1228→            <div ref={bottomRef} />
+  1229→          </div>
+  1230→
+  1231→          {/* دکمه اسکرول به پایین */}
+  1232→          <AnimatePresence>
+  1233→            {showScrollBtn && (
+  1234→              <motion.div
+  1235→                initial={{ opacity: 0, y: 10 }}
+  1236→                animate={{ opacity: 1, y: 0 }}
+  1237→                exit={{ opacity: 0, y: 10 }}
+  1238→                className="sticky bottom-4 flex justify-center"
+  1239→              >
+  1240→                <Button
+  1241→                  size="icon"
+  1242→                  onClick={() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' })}
+  1243→                  className="size-10 rounded-full border bg-card shadow-xl"
+  1244→                  aria-label="برو پایین"
+  1245→                >
+  1246→                  <ArrowDown className="size-4" />
+  1247→                </Button>
+  1248→              </motion.div>
+  1249→            )}
+  1250→          </AnimatePresence>
+  1251→        </main>
+  1252→
+  1253→        {/* اینپوت (فوتر چسبیده به پایین) */}
+  1254→        <ChatInput
+  1255→          value={input}
+  1256→          onChange={setInput}
+  1257→          onSend={send}
+  1258→          onSendImage={sendImage}
+  1259→          onSendVision={sendVision}
+  1260→          onSendFile={sendFile}
+  1261→          sending={busy}
+  1262→          analyzing={visionBusy}
+  1263→          power={power}
+  1264→          onVoiceSent={() => trackEvent('voice')}
+  1265→        />
+  1266→      </div>
+  1267→
+  1268→      {/* 🔐 دیالوگ ورود/ثبت‌نام */}
+  1269→      <AuthDialog
+  1270→        open={authOpen}
+  1271→        onOpenChange={setAuthOpen}
+  1272→        onSuccess={handleAuthSuccess}
+  1273→      />
+  1274→
+  1275→      {/* 🎉 اوورلی لول‌آپ */}
+  1276→      <AnimatePresence>
+  1277→        {levelUp && (
+  1278→          <LevelUpOverlay level={levelUp.level} rank={levelUp.rank} onClose={() => setLevelUp(null)} />
+  1279→        )}
+  1280→      </AnimatePresence>
+  1281→    </div>
+  1282→  )
+  1283→}
+  1284→

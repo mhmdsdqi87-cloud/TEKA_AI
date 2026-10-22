@@ -150,3 +150,24 @@ Stage Summary:
 - خروجی‌ها: src/components/chat/splash.tsx (جدید)، src/components/chat/message-list.tsx (isStreaming + کرسر استریم + انیمیشن ورود فنری + ریویل سینمایی عکس)، src/app/globals.css (بلاک 5-a الحاق شد)، worklog.md.
 - آمادهٔ اتصال: در page.tsx کافیه <Splash onDone={...} /> داخل AnimatePresence رندر بشه و isStreaming رو به MessageBubble پاس بدید (prop اختیاریه، بدون اتصال هم چیزی نمی‌شکنه).
 - پالت کاملاً گرم (طلایی/کهربایی/نارنجی) بدون هیچ آبی/بنفش؛ همهٔ متن‌ها فارسی خودمونی.
+
+---
+Task ID: 5
+Agent: main (Z.ai Code)
+Task: «سروراشو قوی تر کن پر سرعت به تمام عیار + انیمیشن ورود + حرف زدن واقعی فارسی روان»
+
+Work Log:
+- استریم پرسرعت: SDK با stream:true ریسبانس.body (SSE) میده → callLlmStream در llm.ts (parse SSE با ignore reasoning، ۳ retry + fallback JSON)؛ /api/chat حالت wantsStream → SSE با eventهای meta/delta/done/art/error؛ مسیر عکس مستقیم و مسیر غیراستریم دست‌نخورده موندند؛ maxDuration=60 برای ورسل.
+- کلاینت استریم: send() در page.tsx حالا SSE میخونه (stream:true)؛ حباب استریم زنده با isStreaming → کرسر چشمک‌زن teka-cursor؛ مارکرهای TEKA_* تو دلتاها مخفی می‌شن (دو رجکس)؛ TypingIndicator فقط تا اولین دلتا؛ رویداد art → حباب حذف + polling waitForArt؛ رویداد error → پیام دوستانه + برگردوندن ورودی.
+- TTS v2 «فارسی روان»: تست علمی ۴ صدا (tongtong/chuichui/xiaochen/kazi) با **مدت فایل** — فقط xiaochen جمله فارسی رو با سرعت طبیعی میخونه (۹.۷s برای جملهٔ ~۱۷ کلمه؛ بقیه ۲۲-۳۴s یعنی هجاخجاخوانی!) → پیش‌فرض xiaochen.
+- TTS v2 پیاده‌سازی: چانکینگ ≤۹۵۰ کاراکتر روی مرز جمله + concatWav دستی (پارس RIFF، هدر بازسازی، byteRate صحیح) + پارامترهای voice/speed از کلاینت + ۳ تلاش با بک‌آف (۴۲۹ → ۲s×n) + پارشال‌دلیوری (تکه‌های موفق برمی‌گردن حتی اگه یه تکه خورد) + cleanTextForTts: حذف URL خام + maxLen پارامتری.
+- فیکس باگ قدیمی: DELETE /api/conversations/[id] با _req صدا میزد canAccess(req) → ReferenceError؛ حالا req.
+- اسپلش سینمایی (ساب‌ایجنت 5-a): splash.tsx — گوی لوگو با ۳ حلقهٔ نبض، شیمر طلایی «تکا»، ۴ بلاب شناور + کانیک چرخان + ۸ ستاره، نوار پیشرفت ۲.۱s، جمله‌های وضعیت چرخشی، exit با scale+blur؛ پرش با کلیک/کیبورد؛ sessionStorage یک‌بار در نشست؛ reduced-motion کامل.
+- انیمیشن‌های 5-a: SPRING فنری‌تر (420/26)، ورود کاربر از x:26، تکا از y:18 + teka-msg-in گلو، ریویل عکس با blur(20px)→sharp + ✨ محو‌شو.
+- تست: curl SSE → دلتاهای کلمه‌به‌کلمه ✅؛ مسیر عکس processing ✅؛ TTS کوتاه 2.3s ✅؛ مرورگر: اسپلش (دارک+لایت) ✅، استریم زنده با بوردر متحرک ✅، دکمهٔ بلند بخون → POST 200 + پخش ✅، موبایل ۳۹۰px ✅، کنسول صفر ارور ✅؛ lint پاک ✅.
+- محدودیت شناخته‌شده: کوت TTS سخت‌گیره (۴۲۹ روی تست‌های پشت‌سرهم)؛ بک‌آف و پارشال توکشه؛ تک‌پیام (کاربرد واقعی) پایدار.
+
+Stage Summary:
+- تکا الان جواب‌ها رو زنده تایپ می‌کنه (چشم‌نواز و پرسرعت)، ورودش سینماییه و با صدای روان فارسی حرف میزنه.
+- فایل‌ها: llm.ts (+callLlmStream)، api/chat/route.ts (SSE)، api/tts/route.ts (v2)، teka.ts، page.tsx، message-list.tsx، splash.tsx (جدید)، globals.css، conversations/[id] فیکس.
+- کامیت: 56e0934 — شات‌ها: shots/v4-*.png
