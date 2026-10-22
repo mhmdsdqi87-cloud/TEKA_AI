@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Loader2, LogIn, Mail, ShieldCheck, User } from 'lucide-react'
 import {
@@ -53,6 +53,21 @@ export function AuthDialog({ open, onOpenChange, onSuccess }: AuthDialogProps) {
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
   const [googleHint, setGoogleHint] = useState(false)
+  const [googleEnabled, setGoogleEnabled] = useState(false)
+
+  // گوگل فقط وقتی نشون داده می‌شه که سرور کلیدهاش رو داشته باشه
+  useEffect(() => {
+    let alive = true
+    fetch('/api/auth/providers')
+      .then((r) => r.json())
+      .then((d: { google?: boolean }) => {
+        if (alive) setGoogleEnabled(Boolean(d?.google))
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const submit = async (mode: 'login' | 'register') => {
     const form = document.getElementById('teka-auth-form') as HTMLFormElement | null
@@ -109,31 +124,35 @@ export function AuthDialog({ open, onOpenChange, onSuccess }: AuthDialogProps) {
         </DialogHeader>
 
         <div className="px-6 pb-6">
-          {/* دکمهٔ گوگل */}
-          <button
-            onClick={googleLogin}
-            disabled={loading}
-            className="teka-lift flex w-full items-center justify-center gap-2.5 rounded-2xl border border-border bg-white px-4 py-3 text-sm font-semibold text-gray-800 shadow-md transition-all hover:shadow-lg disabled:opacity-60"
-            aria-label="ورود با گوگل"
-          >
-            <GoogleIcon />
-            ورود با گوگل
-          </button>
-          {googleHint && (
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="mt-2 text-center text-[11px] text-muted-foreground"
-            >
-              داریم می‌بریمت گوگل… 🚀
-            </motion.p>
-          )}
+          {/* دکمهٔ گوگل — فقط وقتی کانفیگ شده باشه */}
+          {googleEnabled && (
+            <>
+              <button
+                onClick={googleLogin}
+                disabled={loading}
+                className="teka-lift flex w-full items-center justify-center gap-2.5 rounded-2xl border border-border bg-white px-4 py-3 text-sm font-semibold text-gray-800 shadow-md transition-all hover:shadow-lg disabled:opacity-60"
+                aria-label="ورود با گوگل"
+              >
+                <GoogleIcon />
+                ورود با گوگل
+              </button>
+              {googleHint && (
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="mt-2 text-center text-[11px] text-muted-foreground"
+                >
+                  داریم می‌بریمت گوگل… 🚀
+                </motion.p>
+              )}
 
-          <div className="my-4 flex items-center gap-3">
-            <span className="h-px flex-1 bg-border" />
-            <span className="text-[11px] text-muted-foreground">یا با ایمیل</span>
-            <span className="h-px flex-1 bg-border" />
-          </div>
+              <div className="my-4 flex items-center gap-3">
+                <span className="h-px flex-1 bg-border" />
+                <span className="text-[11px] text-muted-foreground">یا با ایمیل</span>
+                <span className="h-px flex-1 bg-border" />
+              </div>
+            </>
+          )}
 
           <Tabs defaultValue="login" dir="rtl">
             <TabsList className="mb-4 grid w-full grid-cols-2 rounded-2xl">

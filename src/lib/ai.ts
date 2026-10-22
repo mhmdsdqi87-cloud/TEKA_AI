@@ -26,6 +26,18 @@ const AI_MODEL = process.env.AI_MODEL || 'gpt-4o-mini'
 const AI_IMAGE_MODEL = process.env.AI_IMAGE_MODEL || 'dall-e-3'
 const AI_ASR_MODEL = process.env.AI_ASR_MODEL || 'whisper-1'
 
+/** هدرهای اضافهٔ اختیاری برای گیت‌وی (مثلاً {"X-Token":"…","X-Z-AI-From":"Z"}) — JSON توی env */
+const AI_EXTRA_HEADERS: Record<string, string> = (() => {
+  try {
+    const raw = process.env.AI_EXTRA_HEADERS
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    return Object.fromEntries(Object.entries(parsed).map(([k, v]) => [k, String(v)]))
+  } catch {
+    return {}
+  }
+})()
+
 /** آیا حالت سازگار-OpenAI فعاله؟ */
 export function hasOpenAiCompat(): boolean {
   return Boolean(AI_BASE_URL && AI_API_KEY)
@@ -39,6 +51,7 @@ async function oaFetch(path: string, body: unknown): Promise<Response> {
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${AI_API_KEY}`,
+      ...AI_EXTRA_HEADERS,
     },
     body: JSON.stringify(body),
   })
@@ -138,7 +151,7 @@ function makeOpenAiCompat(): AIClient {
           form.append('model', AI_ASR_MODEL)
           const res = await fetch(`${AI_BASE_URL}/audio/transcriptions`, {
             method: 'POST',
-            headers: { Authorization: `Bearer ${AI_API_KEY}` },
+            headers: { Authorization: `Bearer ${AI_API_KEY}`, ...AI_EXTRA_HEADERS },
             body: form,
           })
           if (!res.ok) {
