@@ -163,16 +163,27 @@ export async function POST(req: NextRequest) {
         ? question.trim().slice(0, 4000)
         : 'این فایل رو کامل برام تحلیل کن: چیه، خلاصه‌ش چیه و نکته‌های مهمش کدوم‌ها هستن؟'
 
+    const user = await getUserFromRequest(req)
+    if (!user) {
+      return NextResponse.json(
+        { error: 'برای فرستادن فایل اول وارد حسابت شو! 🔒', needAuth: true },
+        { status: 401 }
+      )
+    }
+
     // ---------- گفتگو ----------
     let conversation =
       typeof conversationId === 'string' && conversationId
         ? await db.conversation.findUnique({ where: { id: conversationId } })
         : null
 
+    if (conversation && conversation.userId !== user.id) {
+      return NextResponse.json({ error: 'این چت مال تو نیست!' }, { status: 404 })
+    }
+
     if (!conversation) {
-      const user = await getUserFromRequest(req)
       conversation = await db.conversation.create({
-        data: { title: makeTitle(`📄 ${userQuestion}`), userId: user?.id ?? null },
+        data: { title: makeTitle(`📄 ${userQuestion}`), userId: user.id },
       })
     }
 

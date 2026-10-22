@@ -78,16 +78,27 @@ export async function POST(req: NextRequest) {
         ? question.trim().slice(0, 2000)
         : 'این عکس رو کامل برام تحلیل کن؛ همه‌چیزش رو دقیق توضیح بده!'
 
+    const user = await getUserFromRequest(req)
+    if (!user) {
+      return NextResponse.json(
+        { error: 'برای تحلیل عکس اول وارد حسابت شو! 🔒', needAuth: true },
+        { status: 401 }
+      )
+    }
+
     // ۱) پیدا کردن یا ساختن گفتگو
     let conversation =
       typeof conversationId === 'string' && conversationId
         ? await db.conversation.findUnique({ where: { id: conversationId } })
         : null
 
+    if (conversation && conversation.userId !== user.id) {
+      return NextResponse.json({ error: 'این چت مال تو نیست!' }, { status: 404 })
+    }
+
     if (!conversation) {
-      const user = await getUserFromRequest(req)
       conversation = await db.conversation.create({
-        data: { title: makeTitle(`📷 ${cleanQuestion}`), userId: user?.id ?? null },
+        data: { title: makeTitle(`📷 ${cleanQuestion}`), userId: user.id },
       })
     }
 

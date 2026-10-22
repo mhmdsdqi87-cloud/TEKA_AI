@@ -9,6 +9,8 @@ import {
   Laugh,
   Lightbulb,
   Loader2,
+  Lock,
+  LogIn,
   Mic,
   Paperclip,
   Puzzle,
@@ -51,6 +53,8 @@ type ChatInputProps = {
   sending: boolean
   analyzing: boolean
   power: boolean
+  locked: boolean
+  onLockedClick: () => void
   onVoiceSent?: () => void
 }
 
@@ -80,6 +84,8 @@ export function ChatInput({
   sending,
   analyzing,
   power,
+  locked,
+  onLockedClick,
   onVoiceSent,
 }: ChatInputProps) {
   const { toast } = useToast()
@@ -297,7 +303,9 @@ export function ChatInput({
   const hasAttachment = !!pendingImage || !!pendingFile
   const busy = sending || recording || transcribing
 
-  const placeholder = recording
+  const placeholder = locked
+    ? 'برای چت با تکا اول وارد حسابت شو! 🔒'
+    : recording
     ? `دارم گوش می‌دم… 🎤 (${formatSeconds(recordSeconds)})`
     : transcribing
       ? 'دارم صدات رو تبدیل می‌کنم… ⏳'
@@ -333,6 +341,10 @@ export function ChatInput({
               <button
                 key={tool.text}
                 onClick={() => {
+                  if (locked) {
+                    onLockedClick()
+                    return
+                  }
                   if (!busy) onSend(tool.text)
                 }}
                 disabled={busy}
@@ -420,8 +432,33 @@ export function ChatInput({
           </motion.div>
         )}
 
+        {/* بنر قفل: مهمان */}
+        {locked && (
+          <motion.button
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            onClick={onLockedClick}
+            className="mb-2 flex w-full items-center justify-center gap-2 rounded-2xl border border-primary/25 bg-primary/10 px-4 py-2.5 text-sm font-bold text-foreground transition-all hover:bg-primary/15 active:scale-[0.99]"
+            aria-label="ورود به حساب برای چت"
+          >
+            <Lock className="size-4 text-primary" />
+            <span>برای چت با تکا اول وارد حسابت شو</span>
+            <span className="flex items-center gap-1 rounded-full bg-primary px-2.5 py-0.5 text-[11px] font-bold text-primary-foreground">
+              <LogIn className="size-3" />
+              ورود / ثبت‌نام
+            </span>
+          </motion.button>
+        )}
+
         {/* اینپوت شیشه‌ای */}
-        <div className="teka-glass-strong flex items-end gap-1.5 rounded-3xl p-2 transition-shadow focus-within:shadow-primary/25">
+        <div
+          className={`teka-glass-strong flex items-end gap-1.5 rounded-3xl p-2 transition-shadow focus-within:shadow-primary/25 ${
+            locked ? 'cursor-pointer opacity-90' : ''
+          }`}
+          onClick={locked ? onLockedClick : undefined}
+          role={locked ? 'button' : undefined}
+          aria-label={locked ? 'برای فعال‌شدن چت، وارد شو' : undefined}
+        >
           <label htmlFor="teka-input" className="sr-only">
             پیامت رو بنویس
           </label>
@@ -434,15 +471,18 @@ export function ChatInput({
             placeholder={placeholder}
             className="max-h-[150px] min-h-[44px] flex-1 resize-none bg-transparent px-3 py-2.5 text-[15px] leading-7 outline-none placeholder:text-muted-foreground"
             onChange={(e) => {
+              if (locked) return
               onChange(e.target.value)
               resize()
             }}
             onKeyDown={(e) => {
+              if (locked) return
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault()
                 submit()
               }
             }}
+            readOnly={locked}
             disabled={sending}
           />
 
@@ -451,7 +491,7 @@ export function ChatInput({
             <DropdownMenuTrigger asChild>
               <Button
                 size="icon"
-                disabled={busy}
+                disabled={busy || locked}
                 variant="ghost"
                 className={`size-11 shrink-0 rounded-2xl transition-transform hover:scale-105 active:scale-95 ${
                   hasAttachment ? 'text-primary' : 'text-muted-foreground'
@@ -498,7 +538,7 @@ export function ChatInput({
           <Button
             size="icon"
             onClick={() => void toggleMic()}
-            disabled={sending || transcribing}
+            disabled={locked || sending || transcribing}
             variant={recording ? 'destructive' : 'ghost'}
             className={`size-11 shrink-0 rounded-2xl transition-transform hover:scale-105 active:scale-95 ${
               recording ? 'teka-rec' : 'text-muted-foreground'
@@ -519,7 +559,7 @@ export function ChatInput({
           <Button
             size="icon"
             onClick={() => setImageMode((v) => !v)}
-            disabled={sending}
+            disabled={locked || sending}
             variant={imageMode ? 'default' : 'ghost'}
             className={`size-11 shrink-0 rounded-2xl transition-transform hover:scale-105 active:scale-95 ${
               imageMode ? 'shadow-lg shadow-primary/40' : 'text-muted-foreground'
@@ -534,20 +574,33 @@ export function ChatInput({
           {/* ارسال */}
           <Button
             size="icon"
-            onClick={submit}
-            disabled={sending || (!value.trim() && !hasAttachment) || recording || transcribing}
+            onClick={() => {
+              if (locked) {
+                onLockedClick()
+                return
+              }
+              submit()
+            }}
+            disabled={
+              !locked &&
+              (sending || (!value.trim() && !hasAttachment) || recording || transcribing)
+            }
             className="teka-shine size-11 shrink-0 rounded-2xl shadow-md shadow-primary/25 transition-transform hover:scale-105 active:scale-95"
             aria-label={
-              pendingImage
-                ? 'ارسال عکس برای تحلیل'
-                : pendingFile
-                  ? 'ارسال فایل برای آنالیز'
-                  : imageMode
-                    ? 'ساخت تصویر'
-                    : 'ارسال پیام'
+              locked
+                ? 'ورود به حساب برای چت'
+                : pendingImage
+                  ? 'ارسال عکس برای تحلیل'
+                  : pendingFile
+                    ? 'ارسال فایل برای آنالیز'
+                    : imageMode
+                      ? 'ساخت تصویر'
+                      : 'ارسال پیام'
             }
           >
-            {analyzing ? (
+            {locked ? (
+              <Lock className="size-5" />
+            ) : analyzing ? (
               <Loader2 className="size-5 animate-spin" />
             ) : (
               <SendHorizonal className="size-5 -scale-x-100" />

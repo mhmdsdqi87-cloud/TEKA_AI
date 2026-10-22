@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getUserFromRequest } from '@/lib/auth'
 import {
   buildMemoryText,
   buildSystemPrompt,
@@ -32,10 +33,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'چتی انتخاب نشده!' }, { status: 400 })
     }
 
+    const sessionUser = await getUserFromRequest(req)
+    if (!sessionUser) {
+      return NextResponse.json(
+        { error: 'برای چت با تکا اول باید وارد حسابت شی! 🔒', needAuth: true },
+        { status: 401 }
+      )
+    }
+
     const conversation = await db.conversation.findUnique({
       where: { id: conversationId },
     })
-    if (!conversation) {
+    if (!conversation || conversation.userId !== sessionUser.id) {
       return NextResponse.json({ error: 'این چت پیدا نشد!' }, { status: 404 })
     }
 

@@ -38,12 +38,22 @@ export async function POST(req: NextRequest) {
     }
 
     const user = await getUserFromRequest(req)
+    if (!user) {
+      return NextResponse.json(
+        { error: 'برای ساخت تصویر اول وارد حسابت شو! 🔒', needAuth: true },
+        { status: 401 }
+      )
+    }
 
     // ۱) پیدا کردن یا ساختن گفتگو
     let conversation =
       typeof conversationId === 'string' && conversationId
         ? await db.conversation.findUnique({ where: { id: conversationId } })
         : null
+
+    if (conversation && conversation.userId !== user.id) {
+      return NextResponse.json({ error: 'این چت مال تو نیست!' }, { status: 404 })
+    }
 
     if (!conversation) {
       conversation = await db.conversation.create({

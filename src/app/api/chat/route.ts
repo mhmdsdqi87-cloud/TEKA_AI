@@ -46,6 +46,12 @@ export async function POST(req: NextRequest) {
     const cleanMessage = sanitizeInput(message.trim())
 
     const user = await getUserFromRequest(req)
+    if (!user) {
+      return NextResponse.json(
+        { error: 'برای چت با تکا اول باید وارد حسابت شی! 🔒', needAuth: true },
+        { status: 401 }
+      )
+    }
     const mood = parseMood(body?.mood)
 
     // ۱) پیدا کردن یا ساختن گفتگو
@@ -54,9 +60,13 @@ export async function POST(req: NextRequest) {
         ? await db.conversation.findUnique({ where: { id: conversationId } })
         : null
 
+    if (conversation && conversation.userId !== user.id) {
+      return NextResponse.json({ error: 'این چت مال تو نیست!' }, { status: 404 })
+    }
+
     if (!conversation) {
       conversation = await db.conversation.create({
-        data: { title: makeTitle(cleanMessage), userId: user?.id ?? null },
+        data: { title: makeTitle(cleanMessage), userId: user.id },
       })
     }
 

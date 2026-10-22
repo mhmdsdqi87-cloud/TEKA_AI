@@ -475,9 +475,21 @@ export default function TekaPage() {
   )
 
   // ---------- ارسال پیام (⚡ استریم زنده — حرف‌به‌حرف) ----------
+  /** 🔒 گیت لاگین: اگه مهمان باشه، دیالوگ ورود باز می‌شه و پیام نمی‌ره */
+  const requireAuth = useCallback((): boolean => {
+    if (user) return true
+    toast({
+      title: 'اول وارد شو داداش! 🔒',
+      description: 'تا لاگین نکنی نمی‌تونی به تکا پیام بدی.',
+    })
+    setAuthOpen(true)
+    return false
+  }, [user, toast])
+
   const send = useCallback(
     async (text: string) => {
       if (sending || regenerating || imageBusy || visionBusy) return
+      if (!requireAuth()) return
       const content = text.trim()
       if (!content) return
 
@@ -556,6 +568,14 @@ export default function TekaPage() {
 
         if (!res.ok) {
           const data = await res.json().catch(() => null)
+          if (res.status === 401 || data?.needAuth) {
+            setUser(null)
+            setAuthOpen(true)
+            toast({
+              title: 'نشستت تموم شده! 🔒',
+              description: 'دوباره وارد حسابت شو داداش.',
+            })
+          }
           throw new Error(data?.error || 'یه چیزی قاطی شد، دوباره بفرست!')
         }
 
@@ -668,13 +688,14 @@ export default function TekaPage() {
         setStreamingId(null)
       }
     },
-    [sending, regenerating, imageBusy, visionBusy, power, bumpConversation, toast, waitForNewMessages, trackEvent]
+    [sending, regenerating, imageBusy, visionBusy, power, bumpConversation, toast, waitForNewMessages, trackEvent, requireAuth]
   )
 
   // ---------- ساخت تصویر ----------
   const sendImage = useCallback(
     async (prompt: string) => {
       if (sending || regenerating || imageBusy || visionBusy) return
+      if (!requireAuth()) return
       const content = prompt.trim()
       if (!content) return
 
@@ -733,13 +754,14 @@ export default function TekaPage() {
         setImageBusy(false)
       }
     },
-    [sending, regenerating, imageBusy, visionBusy, bumpConversation, toast, waitForNewMessages, trackEvent]
+    [sending, regenerating, imageBusy, visionBusy, bumpConversation, toast, waitForNewMessages, trackEvent, requireAuth]
   )
 
   // ---------- تحلیل عکس کاربر (چشم ماشینی تکا) ----------
   const sendVision = useCallback(
     async (imageDataUrl: string, question: string) => {
       if (sending || regenerating || imageBusy || visionBusy) return
+      if (!requireAuth()) return
 
       const usedConvId = activeIdRef.current
       const tempId = `local-uimg-${Date.now()}`
@@ -782,13 +804,14 @@ export default function TekaPage() {
         setVisionBusy(false)
       }
     },
-    [sending, regenerating, imageBusy, visionBusy, bumpConversation, toast, trackEvent]
+    [sending, regenerating, imageBusy, visionBusy, bumpConversation, toast, trackEvent, requireAuth]
   )
 
   // ---------- آنالیز فایل/سند ----------
   const sendFile = useCallback(
     async (file: PendingFile, question: string) => {
       if (sending || regenerating || imageBusy || visionBusy) return
+      if (!requireAuth()) return
 
       const usedConvId = activeIdRef.current
       const tempId = `local-file-${Date.now()}`
@@ -834,12 +857,13 @@ export default function TekaPage() {
         setVisionBusy(false)
       }
     },
-    [sending, regenerating, imageBusy, visionBusy, power, bumpConversation, toast, trackEvent]
+    [sending, regenerating, imageBusy, visionBusy, power, bumpConversation, toast, trackEvent, requireAuth]
   )
 
   // ---------- دوباره جواب بده ----------
   const regenerate = useCallback(async () => {
     if (sending || regenerating || imageBusy || visionBusy || !activeIdRef.current) return
+    if (!requireAuth()) return
     setRegenerating(true)
     try {
       const res = await fetch('/api/chat/regenerate', {
@@ -872,7 +896,7 @@ export default function TekaPage() {
     } finally {
       setRegenerating(false)
     }
-  }, [sending, regenerating, power, toast])
+  }, [sending, regenerating, power, toast, requireAuth])
 
   // ---------- کپی ----------
   const copyText = useCallback(
@@ -1298,6 +1322,14 @@ export default function TekaPage() {
           sending={busy}
           analyzing={visionBusy}
           power={power}
+          locked={!user}
+          onLockedClick={() => {
+            toast({
+              title: 'اول وارد شو داداش! 🔒',
+              description: 'تا لاگین نکنی نمی‌تونی به تکا پیام بدی.',
+            })
+            setAuthOpen(true)
+          }}
           onVoiceSent={() => trackEvent('voice')}
         />
       </motion.div>
