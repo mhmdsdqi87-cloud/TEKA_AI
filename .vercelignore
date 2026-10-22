@@ -1,0 +1,9 @@
+skills/
+shots/
+examples/
+agent-ctx/
+db/
+scripts/
+.claude/
+*.log
+worklog.md

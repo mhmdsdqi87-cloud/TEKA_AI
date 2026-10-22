@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     const res = NextResponse.json({
       user: { id: user.id, email: user.email, name: user.name, image: user.image },
     })
-    res.headers.append('Set-Cookie', sessionCookie(createToken(user.id)))
+    res.headers.append('Set-Cookie', sessionCookie(createToken(user)))
     return res
   } catch (err) {
     console.error('[api/auth/register] failed:', err)

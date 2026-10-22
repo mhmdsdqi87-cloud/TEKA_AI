@@ -60,3 +60,4 @@ db/custom.db
 
 # db backups
 db/backups/
+.vercel

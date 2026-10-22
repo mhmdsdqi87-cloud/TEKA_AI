@@ -5,6 +5,8 @@ import { db } from '@/lib/db'
  * سیستم احراز هویت تکا (سبک، بدون وابستگی جدید)
  * - رمزها با scrypt هش می‌شن
  * - توکن نشست: HMAC-SHA256 (شبه‌JWT) توی کوکی HttpOnly
+ *   → اسم و ایمیل و عکس هم داخل توکن امضاشده می‌شینه (stateless)
+ *     تا روی سرورلس (ورسل) حتی بدون دیتابیس مشترک هم نشست کار کنه
  * - ورود گوگل: OAuth2 استاندارد با متغیرهای محیطی
  */
 
@@ -35,19 +37,28 @@ export function verifyPassword(password: string, stored: string | null | undefin
   }
 }
 
-/* ---------- توکن نشست (HMAC-SHA256) ---------- */
+/* ---------- توکن نشست (HMAC-SHA256، stateless) ---------- */
 function sign(data: string): string {
   return createHmac('sha256', SECRET).update(data).digest('base64url')
 }
 
-export function createToken(userId: string, days = 30): string {
+/** کل کاربر داخل توکن امضاشده می‌شینه — ورسل بدون دیتابیس مشترک هم اوکیه */
+export function createToken(user: SessionUser, days = 30): string {
   const payload = Buffer.from(
-    JSON.stringify({ sub: userId, exp: Date.now() + days * 86_400_000 })
+    JSON.stringify({
+      sub: user.id,
+      name: user.name,
+      email: user.email,
+      image: user.image,
+      exp: Date.now() + days * 86_400_000,
+    })
   ).toString('base64url')
   return `${payload}.${sign(payload)}`
 }
 
-export function readToken(token: string | null | undefined): string | null {
+type TokenPayload = { sub: string; name?: string; email?: string; image?: string | null; exp: number }
+
+function parseToken(token: string | null | undefined): TokenPayload | null {
   if (!token) return null
   const [payload, sig] = token.split('.')
   if (!payload || !sig) return null
@@ -55,12 +66,9 @@ export function readToken(token: string | null | undefined): string | null {
   const b = Buffer.from(sign(payload))
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null
   try {
-    const data = JSON.parse(Buffer.from(payload, 'base64url').toString()) as {
-      sub?: string
-      exp?: number
-    }
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString()) as TokenPayload
     if (!data.sub || !data.exp || data.exp < Date.now()) return null
-    return data.sub
+    return data
   } catch {
     return null
   }
@@ -75,10 +83,17 @@ export async function getUserFromRequest(req: Request): Promise<SessionUser | nu
       .map((s) => s.trim())
       .find((s) => s.startsWith(`${SESSION_COOKIE}=`))
     const token = row ? decodeURIComponent(row.slice(SESSION_COOKIE.length + 1)) : null
-    const userId = readToken(token)
-    if (!userId) return null
+    const data = parseToken(token)
+    if (!data) return null
+
+    // توکن جدید → کاربر کامل از خود توکن (بدون دیتابیس — stateless)
+    if (data.name && data.email) {
+      return { id: data.sub, name: data.name, email: data.email, image: data.image ?? null }
+    }
+
+    // عقب‌گرد: توکن‌های قدیمی (فقط sub) → دیتابیس
     const user = await db.user.findUnique({
-      where: { id: userId },
+      where: { id: data.sub },
       select: { id: true, email: true, name: true, image: true },
     })
     return user ?? null

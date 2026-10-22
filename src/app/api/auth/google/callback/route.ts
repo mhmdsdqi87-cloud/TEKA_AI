@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
     })
 
     const res = NextResponse.redirect(`${origin}/?welcome=${encodeURIComponent(user.name)}`)
-    res.headers.append('Set-Cookie', sessionCookie(createToken(user.id)))
+    res.headers.append('Set-Cookie', sessionCookie(createToken(user)))
     res.headers.append(
       'Set-Cookie',
       `${OAUTH_STATE_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
