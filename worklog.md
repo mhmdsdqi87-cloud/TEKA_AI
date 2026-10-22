@@ -64,3 +64,25 @@ Stage Summary:
 - No more dead-end errors: worst case is a friendly text explanation with suggestions.
 - Risky prompts now succeed by staying recognizable (parody-style) instead of failing or losing the subject.
 - Chat accuracy boosted via always-on thinking + strict accuracy prompt rules.
+
+---
+Task ID: 3
+Agent: main (Z.ai Code)
+Task: رفع شکایت کاربر — ارور «اوپس»، عکس‌های غلط، HTML به‌جای عکس در چت، و ضعف کلی هوش مصنوعی
+
+Work Log:
+- ریشه‌یابی: «اووپس» در ۴ تُست فرانت (page.tsx) + ارور ۵۰۲ چت‌روت پیدا شد؛ «اچ‌تی‌ام‌ال چی چی» = مدل چت GLM به‌جای ساختن عکس، کد HTML می‌نوشت چون /api/chat اصلاً مسیر تصویر نداشت.
+- ساخت src/lib/image-draw.ts مشترک: زنجیرهٔ نجات نسخهٔ ۴ + روتر رجکسی looksLikeImageRequest (تست ۸/۸) + extractDrawPrompt + تلهٔ FAKE_DRAW_RE.
+- /api/chat: دو مسیر جدید تصویر — (۱) مستقیم با رجکس بدون دور اضافهٔ LLM (۳۰s)، (۲) هوشمند با مارکر TEKA_DRAW از پرامپت سیستمی + تلهٔ ضدتقلید برای جواب‌های «عکس کشیدم» بدون عکس واقعی.
+- /api/chat/regenerate: هندل TEKA_DRAW و تلهٔ ضدتقلید اضافه شد.
+- teka.ts: بخش «تصویرساز» به پرامپت سیستمی اضافه شد (ممنوعیت HTML/ادعای دروغ)، قانون بازیابی دقیق حافظه («یادته؟» → اول خاطرات رو بگرد)، متن placeholder تاریخچه غیرقابل‌تقلید شد، HISTORY 60→80 و MEMORY 120→150/SNIPPET 420.
+- llm.ts: retry از ۳ به ۴ تلاش با بک‌آف فزاینده.
+- ENRICH_SYSTEM جدید: اسم سلبریتی‌ها حفظ می‌شه (شباهت بهتر)؛ فقط سیاسی/مذهبی توصیفی می‌شن؛ RISKY_PATTERNS با الگوهای خشونت جدید («له میکنه»، «زیر پاش»...).
+- فرانت: هر ۵ «اووپس» حذف شد → «اوه اوه! 🙈»؛ AbortSignal.timeout (چت 150s، عکس 180s)؛ res.json().catch(null) در همهٔ فچ‌ها.
+- تست: رجکس ۸/۸؛ curl چت→عکس مستقیم ✅؛ مسیر TEKA_DRAW/تله ✅ (۷۵s)؛ چت معمولی ۱.۶s ✅؛ /api/image ✅؛ مرورگر E2E: عکس گربه با عینک آفتابی دقیق رندر شد + دانلود + بدون ارور کنسول؛ lint پاک.
+
+Stage Summary:
+- عکس در چت عادی الان کار می‌کنه (قبلاً HTML می‌نوشت یا «اووپس» می‌داد).
+- کلمهٔ «اووپس» کاملاً از UI و بک‌اند حذف شد؛ فیل‌بک متنی دوستانه به‌جای ارور مرده.
+- سه لایهٔ دفاعی تصویر: رجکس مستقیم → TEKA_DRAW مدل → تلهٔ ضدتقلید.
+- فایل‌های کلیدی: src/lib/image-draw.ts (جدید)، src/app/api/chat/route.ts، src/app/api/chat/regenerate/route.ts، src/lib/teka.ts، src/lib/llm.ts، src/app/page.tsx.

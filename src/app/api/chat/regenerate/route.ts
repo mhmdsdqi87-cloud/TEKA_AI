@@ -5,7 +5,14 @@ import {
   buildSystemPrompt,
   loadHistory,
 } from '@/lib/teka'
-import { callLlm } from '@/lib/llm'
+import { callLlm, getZai } from '@/lib/llm'
+import {
+  IMAGE_MARKER,
+  drawWithRescue,
+  extractDrawPrompt,
+  gracefulFallbackText,
+  FAKE_DRAW_RE,
+} from '@/lib/image-draw'
 
 type RouteBody = { conversationId?: string; power?: boolean }
 
@@ -70,8 +77,30 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // ⭐ اگه جواب جدید درخواست نقاشی بود، عکس واقعی بساز
+    let content = reply
+    const drawPrompt = extractDrawPrompt(reply)
+    if (drawPrompt) {
+      const zai = await getZai()
+      const base64 = await drawWithRescue(zai, drawPrompt)
+      content = base64
+        ? `${IMAGE_MARKER}data:image/png;base64,${base64}`
+        : await gracefulFallbackText(drawPrompt)
+    } else if (FAKE_DRAW_RE.test(reply)) {
+      // تلهٔ ضدتقلید: مدل ادعا کرد عکس کشیده ولی مارکر نداد
+      const lastUser = history.filter((m) => m.role === 'user').pop()
+      const zai = await getZai()
+      const base64 = await drawWithRescue(
+        zai,
+        lastUser?.content?.slice(0, 600) || 'یه نقاشی خفن و خلاقانه'
+      )
+      content = base64
+        ? `${IMAGE_MARKER}data:image/png;base64,${base64}`
+        : await gracefulFallbackText(lastUser?.content?.slice(0, 600) || 'نقاشی')
+    }
+
     const saved = await db.message.create({
-      data: { conversationId, role: 'assistant', content: reply },
+      data: { conversationId, role: 'assistant', content },
     })
     await db.conversation.update({
       where: { id: conversationId },
@@ -79,7 +108,7 @@ export async function POST(req: NextRequest) {
     })
 
     return NextResponse.json({
-      reply: { id: saved.id, role: 'assistant', content: reply, createdAt: saved.createdAt },
+      reply: { id: saved.id, role: 'assistant', content, createdAt: saved.createdAt },
     })
   } catch (err) {
     console.error('[api/chat/regenerate] error:', err)

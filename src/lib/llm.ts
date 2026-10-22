@@ -26,7 +26,8 @@ export async function callLlm(
   const zai = await getZai()
   let lastError: unknown = null
 
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  // ۴ تلاش با تأخیر فزاینده — تا جواب «اووپس» تقریباً غیرممکن شه
+  for (let attempt = 1; attempt <= 4; attempt++) {
     try {
       const completion = await zai.chat.completions.create({
         messages: messages as never,
@@ -39,8 +40,8 @@ export async function callLlm(
       throw new Error('empty response')
     } catch (err) {
       lastError = err
-      if (attempt < 3) {
-        await new Promise((r) => setTimeout(r, 800 * attempt))
+      if (attempt < 4) {
+        await new Promise((r) => setTimeout(r, 700 * attempt))
       }
     }
   }

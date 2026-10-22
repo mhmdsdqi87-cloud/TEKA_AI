@@ -189,7 +189,7 @@ export default function TekaPage() {
         setSpeakingLoadingId(null)
         setSpeakingId(null)
         toast({
-          title: 'اووپس!',
+          title: 'اوه اوه! 🙈',
           description: err instanceof Error ? err.message : 'صدام درنیومد!',
           variant: 'destructive',
         })
@@ -303,8 +303,9 @@ export default function TekaPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: content, conversationId: usedConvId, power }),
+          signal: AbortSignal.timeout(150_000),
         })
-        const data = await res.json()
+        const data = await res.json().catch(() => null)
 
         if (!res.ok) {
           throw new Error(data?.error || 'یه چیزی قاطی شد، دوباره بفرست!')
@@ -325,7 +326,7 @@ export default function TekaPage() {
         setMessages((m) => m.filter((x) => x.id !== tempId))
         setInput(text)
         toast({
-          title: 'اووپس!',
+          title: 'اوه اوه! 🙈',
           description: err instanceof Error ? err.message : 'یه خطای ناشناخته پیش اومد!',
           variant: 'destructive',
         })
@@ -355,8 +356,9 @@ export default function TekaPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ prompt: content, conversationId: usedConvId }),
+          signal: AbortSignal.timeout(180_000),
         })
-        const data = await res.json()
+        const data = await res.json().catch(() => null)
         if (!res.ok) {
           throw new Error(data?.error || 'تصویر ساخته نشد!')
         }
@@ -371,7 +373,7 @@ export default function TekaPage() {
         setMessages((m) => m.filter((x) => x.id !== tempId))
         setInput(content)
         toast({
-          title: 'اووپس!',
+          title: 'اوه اوه! 🙈',
           description: err instanceof Error ? err.message : 'تصویرسازی قاطی شد!',
           variant: 'destructive',
         })
@@ -404,8 +406,9 @@ export default function TekaPage() {
             question,
             conversationId: usedConvId,
           }),
+          signal: AbortSignal.timeout(150_000),
         })
-        const data = await res.json()
+        const data = await res.json().catch(() => null)
         if (!res.ok) {
           throw new Error(data?.error || 'تحلیل عکس نشد!')
         }
@@ -422,7 +425,7 @@ export default function TekaPage() {
         setMessages((m) => m.filter((x) => x.id !== tempId))
         if (question) setInput(question)
         toast({
-          title: 'اووپس!',
+          title: 'اوه اوه! 🙈',
           description: err instanceof Error ? err.message : 'تحلیل عکس قاطی شد!',
           variant: 'destructive',
         })
@@ -458,8 +461,9 @@ export default function TekaPage() {
             conversationId: usedConvId,
             power,
           }),
+          signal: AbortSignal.timeout(150_000),
         })
-        const data = await res.json()
+        const data = await res.json().catch(() => null)
         if (!res.ok) {
           throw new Error(data?.error || 'آنالیز فایل نشد!')
         }
@@ -476,7 +480,7 @@ export default function TekaPage() {
         setMessages((m) => m.filter((x) => x.id !== tempId))
         if (question) setInput(question)
         toast({
-          title: 'اووپس!',
+          title: 'اوه اوه! 🙈',
           description: err instanceof Error ? err.message : 'آنالیز فایل قاطی شد!',
           variant: 'destructive',
         })
@@ -497,8 +501,9 @@ export default function TekaPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ conversationId: activeIdRef.current, power }),
+        signal: AbortSignal.timeout(150_000),
       })
-      const data = await res.json()
+      const data = await res.json().catch(() => null)
       if (!res.ok) throw new Error(data?.error || 'جواب جدید نیومد!')
 
       setMessages((m) => {
