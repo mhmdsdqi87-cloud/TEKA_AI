@@ -13,6 +13,7 @@ import {
   TEKA_NAME,
 } from '@/lib/teka'
 import { callLlm, callLlmStream } from '@/lib/llm'
+import { hasOpenAiCompat } from '@/lib/ai'
 import {
   drawAndSaveBackground,
   extractDrawPrompt,
@@ -128,9 +129,12 @@ export async function POST(req: NextRequest) {
 
             const reply = sanitizeReply(full ?? raw)
             if (!reply || !reply.trim()) {
+              const aiHint = hasOpenAiCompat()
+                ? 'یه بار دیگه بفرست، این دفعه حتماً جواب می‌ده!'
+                : 'هوش مصنوعی سرور هنوز وصل نیست — کلید OpenAI-سازگار (مثل z.ai یا OpenRouter) لازمه!'
               controller.enqueue(
                 sse('error', {
-                  error: `مغزم یه لحظه داغ کرد داداش! 🙈 یه بار دیگه بفرست، این دفعه حتماً جواب می‌دم! (${TEKA_NAME} - ساختهٔ ${TEKA_CREATOR})`,
+                  error: `مغزم یه لحظه داغ کرد داداش! 🙈 ${aiHint} (${TEKA_NAME} - ساختهٔ ${TEKA_CREATOR})`,
                 })
               )
               controller.close()

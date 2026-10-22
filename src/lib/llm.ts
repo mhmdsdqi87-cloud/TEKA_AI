@@ -65,7 +65,15 @@ export async function callLlmStream(
   think = true,
   onDelta: (text: string) => void
 ): Promise<string | null> {
-  const zai = await getZai()
+  // اگه هوش مصنوعی کانفیگ نشده، فوری null بده — نه ریترای و معطلی
+  let zai: AIClient
+  try {
+    zai = await getZai()
+  } catch (err) {
+    console.error('[teka] AI not configured:', err instanceof Error ? err.message : err)
+    return null
+  }
+
   let lastError: unknown = null
 
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -113,7 +121,14 @@ export async function callLlm(
   power = false,
   think = true
 ): Promise<string | null> {
-  const zai = await getZai()
+  // اگه هوش مصنوعی کانفیگ نشده، فوری null بده — نه ۴ بار ریترای و معطلی
+  let zai: AIClient
+  try {
+    zai = await getZai()
+  } catch (err) {
+    console.error('[teka] AI not configured:', err instanceof Error ? err.message : err)
+    return null
+  }
   let lastError: unknown = null
 
   // ۴ تلاش با تأخیر فزاینده — تا جواب «اووپس» تقریباً غیرممکن شه
