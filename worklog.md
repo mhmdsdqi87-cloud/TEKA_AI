@@ -106,3 +106,25 @@ Stage Summary:
 - دیگه هیچ درخواست عکسی تایم‌اوت نمی‌خوره — جواب فوری + ساخت پس‌زمینه + polling.
 - عکس همین‌جا تو چت ظاهر می‌شه، کاربر لازم نیست بیرون/داخل شه.
 - فایل‌ها: src/lib/image-draw.ts (drawAndSaveBackground)، api/image، api/chat، api/conversations/[id] (after)، page.tsx، message-list.tsx (PaintingPlaceholder+sparkle+redraw)، globals.css، teka.ts (sanitizeInput).
+
+---
+Task ID: 4 (v3 mega-upgrade)
+Agent: main (Z.ai Code)
+Task: لاگین/ثبت‌نام + گوگل OAuth، گیمیفیکیشن کامل، Aurora v2، انیمیشن‌ها، گیت/ورسل
+
+Work Log:
+- Prisma: مدل User (email unique, scrypt passwordHash nullable, image) + Conversation.userId (nullable, index) → db:push
+- src/lib/auth.ts: هش scrypt + توکن HMAC-SHA256 + کوکی HttpOnly (teka_session) + getUserFromRequest — بدون وابستگی جدید
+- APIها: /api/auth/{register,login,logout,me} + /api/auth/google + callback (state cookie، userinfo، upsert) — بدون کلید: ریدایرکت ?authError=google_not_configured
+- اسکوپینگ چت‌ها: لیست/ساخت/دسترسی [id] بر اساس کاربر (مهمان فقط چت‌های بی‌صاحب)
+- src/lib/game.ts: استریک، ۷ ماموریت روزانه (seed روزانه)، ۱۱ دستاورد، bonusXp، level watcher، mood ذخیره‌سازی
+- کامپوننتا: auth-dialog.tsx (تب ورود/ثبت‌نام + دکمه گوگل)، gamification.tsx (StreakChip/QuestsChip/AchievementsChip/LevelUpOverlay)، confetti.tsx (۳۸ تکه بدون dep)
+- globals.css: Aurora v2 (teka-conic چرخان، teka-noise، ۳ teka-comet، teka-mouse-glow با --mx/--my)، teka-border-anim (بوردر گرادیانت متحرک حباب تکا)، teka-img-reveal، teka-flame، teka-chip، teka-quest-done، teka-level-flash + reduced-motion + گلوهای قوی‌تر
+- page.tsx: اتصال همه — هدر جدید (چیپا، mood dropdown، چیپ کاربر/ورود)، mouse-glow راف، لول‌آپ واتچر، trackEvent برای chat/image/vision/file/voice/mood، regenerate «اووپس»→«اوه اوه! 🙈»، mood به chat/regenerate
+- chat-input: onVoiceSent callback؛ message-list: بوردر متحرک + ریویل عکس؛ sidebar: bonusXp prop
+- DEPLOY.md فارسی + .env.example + گیت کامیت
+
+Stage Summary:
+- تست curl: رجیستر/لاگین/می/۴۰۹ تکراری/۴۰۱ رمز غلط/گوگل ریدایرکت — همگی پاس
+- تست مرورگر (Agent Browser): ثبت‌نام واقعی از UI موفق، چیپ کاربر ظاهر شد، مدال «اولین حرف» + لول‌آپ سطح ۱۹ با کانفتی و اوورلی خودکار، پیام با بوردر متحرک، عکس گربه فضایی «زنده» تو چت ظاهر شد (بدون خروج/برگشت — باگ قبلی تأیید حل)، شهاب و کانیک مرئی، موبایل 390px سالم
+- lint: ۰ خطا / dev.log: بدون خطا / شات‌ها: shots/v3-*.png
